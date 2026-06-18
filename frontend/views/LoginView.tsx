@@ -68,17 +68,17 @@ export function LoginView() {
   };
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <div className="flex w-full flex-col justify-center px-8 py-10 lg:w-1/2 lg:px-16">
+    <div className="relative flex min-h-screen bg-background">
+      <div className="flex w-full flex-col justify-center px-6 py-10 sm:px-8 lg:w-1/2 lg:px-16">
         <div className="mx-auto w-full max-w-md">
           <Link href="/" className="mb-8 flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-accent shadow-[var(--glow-primary)]">
               <Activity className="h-5 w-5 text-primary-foreground" />
             </div>
             <span className="text-xl font-bold">BEE</span>
           </Link>
 
-          <h1 className="text-3xl font-bold">Welcome back</h1>
+          <h1 className="text-3xl font-bold"><span className="text-gradient">Welcome back</span></h1>
           <p className="mt-2 text-muted-foreground">Sign in to continue your research journey</p>
 
           <form onSubmit={onSubmit} className="mt-8 space-y-6" noValidate>
@@ -113,11 +113,12 @@ export function LoginView() {
         </div>
       </div>
 
-      <div className="relative hidden w-1/2 overflow-hidden bg-card lg:block">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,hsl(var(--primary)/0.12),transparent_40%),radial-gradient(circle_at_75%_75%,hsl(var(--accent)/0.15),transparent_45%)]" />
+      <div className="relative hidden w-1/2 overflow-hidden bg-gradient-hero lg:block">
+        <div className="absolute inset-0 bg-grid opacity-30" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,hsl(var(--primary)/0.22),transparent_45%),radial-gradient(circle_at_75%_75%,hsl(var(--accent)/0.22),transparent_50%)] animate-aurora" />
         <div className="flex h-full flex-col items-center justify-center p-16">
           <div className="max-w-md text-center">
-            <h2 className="text-3xl font-bold">Discipline Over Hype</h2>
+            <h2 className="text-3xl font-bold"><span className="text-gradient">Discipline Over Hype</span></h2>
             <p className="mt-4 text-muted-foreground">
               Research first, trade second. Build repeatable ideas, validate them on data, then execute with confidence.
             </p>
