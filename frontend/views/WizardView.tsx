@@ -47,7 +47,7 @@ export function WizardView({ steps, children, summary, footer, ...props }: Wizar
   return (
     <BaseView {...props}>
       <div className="space-y-6">
-        <div className="overflow-x-auto border-b bg-muted1040 px-4 py-3">
+        <div className="overflow-x-auto rounded-xl border border-border/60 bg-gradient-card px-4 py-3">
           <div className="grid min-w-max items-start" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(7rem, 1fr))` }}>
             {steps.map((step, index) => (
               <div key={`${step.label}-${index}`} className="flex justify-center">
@@ -61,8 +61,8 @@ export function WizardView({ steps, children, summary, footer, ...props }: Wizar
                     <StepIcon label={step.label} status={step.status} />
                   </div>
                   <div className="leading-tight">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Step {index + 1}</p>
-                    <p className={cn('max-w-28 text-xs font-semibold sm:text-sm', step.status === 'current' ? 'text-slate-950' : 'text-slate-600')}>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Step {index + 1}</p>
+                    <p className={cn('max-w-28 text-xs font-semibold sm:text-sm', step.status === 'current' ? 'text-foreground' : 'text-muted-foreground')}>
                       {step.label}
                     </p>
                   </div>
