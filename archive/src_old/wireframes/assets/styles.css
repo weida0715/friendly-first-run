@@ -1,0 +1,103 @@
+:root {
+  --wf-bg: #f8f9fa;
+  --wf-panel: #ffffff;
+  --wf-muted: #6c757d;
+  --wf-border: #dee2e6;
+}
+
+body {
+  background: var(--wf-bg);
+}
+
+.wf-shell {
+  border: 1px dashed var(--wf-border);
+  background: var(--wf-panel);
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.wf-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--wf-muted);
+}
+
+.wf-box {
+  border: 1px dashed var(--wf-border);
+  border-radius: 0.5rem;
+  min-height: 84px;
+  padding: 0.75rem;
+  background: #fff;
+}
+
+.wf-nav a {
+  text-decoration: none;
+}
+
+.wf-sticky {
+  position: sticky;
+  top: 1rem;
+}
+
+.wf-page-header {
+  border: 1px dashed var(--wf-border);
+  border-radius: 0.75rem;
+  background: #fff;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.wf-component {
+  border: 1px dashed var(--wf-border);
+  border-radius: 0.5rem;
+  background: #fff;
+  padding: 0.75rem;
+  min-height: 64px;
+}
+
+.wf-stack {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.wf-chip {
+  display: inline-block;
+  border: 1px dashed var(--wf-border);
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.75rem;
+  color: var(--wf-muted);
+  margin: 0.15rem 0.25rem 0.15rem 0;
+}
+
+.wf-table-row {
+  border: 1px dashed var(--wf-border);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #fff;
+  font-size: 0.9rem;
+}
+
+.wf-global-nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  border-bottom: 1px dashed var(--wf-border);
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(2px);
+}
+
+.wf-nav-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.wf-nav-grid .btn {
+  border-style: dashed;
+}
+
+.wf-nav-grid .btn.active {
+  font-weight: 600;
+}

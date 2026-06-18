@@ -1,0 +1,5 @@
+# BEE backend development and test dependencies
+-r requirements.txt
+
+pytest==9.0.2
+pytest-cov==7.0.0

@@ -1,0 +1,4 @@
+from app.architectures.logistic_regressor_architecture import LogisticRegressorArchitecture
+from app.architectures.ridge_classifier_architecture import RidgeClassifierArchitecture
+
+__all__ = ["LogisticRegressorArchitecture", "RidgeClassifierArchitecture"]
