@@ -82,8 +82,19 @@ export function TokenizedParameterInput({ value, param, error, onChange }: { val
           <option value="">Select option…</option>
           {allowed.map((option) => <option key={option} value={option} disabled={tokens.includes(option)}>{option}</option>)}
         </select>
-        <div className="flex min-h-9 flex-wrap gap-2 rounded-md border border-input bg-background p-2">
-          {tokens.map((token, index) => <button type="button" key={`${token}-${index}`} className="group rounded border bg-muted px-2 py-1 text-xs" onClick={() => removeToken(index)} aria-label={`Remove ${token}`}>{token}<span className="ml-1 opacity-0 group-hover:opacity-100">×</span></button>)}
+        <div className="flex min-h-9 flex-wrap gap-2 rounded-md border border-input/80 bg-background/50 p-2 backdrop-blur-sm">
+          {tokens.map((token, index) => (
+            <button
+              type="button"
+              key={`${token}-${index}`}
+              className="group inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs text-primary transition-colors hover:border-destructive/60 hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => removeToken(index)}
+              aria-label={`Remove ${token}`}
+            >
+              {token}
+              <span className="opacity-50 group-hover:opacity-100">×</span>
+            </button>
+          ))}
           {tokens.length === 0 ? <span className="text-xs text-muted-foreground">No options selected.</span> : null}
         </div>
         <FormErrorText message={error || localError} />
@@ -104,9 +115,20 @@ export function TokenizedParameterInput({ value, param, error, onChange }: { val
 
   return (
     <div className="space-y-2">
-      <div className="flex min-h-10 flex-wrap items-center gap-2 rounded-md border border-input bg-background p-2">
-        {tokens.map((token, index) => <button type="button" key={`${token}-${index}`} className="group rounded border bg-muted px-2 py-1 text-xs" onClick={() => removeToken(index)} aria-label={`Remove ${token}`}>{token}<span className="ml-1 opacity-0 group-hover:opacity-100">×</span></button>)}
-        <input className="min-w-20 flex-1 bg-transparent text-sm outline-none" aria-label={`${param.name} value`} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} placeholder={tokens.length ? 'type + space' : param.default} />
+      <div className="flex min-h-10 flex-wrap items-center gap-2 rounded-md border border-input/80 bg-background/50 p-2 backdrop-blur-sm transition-colors focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-ring/30">
+        {tokens.map((token, index) => (
+          <button
+            type="button"
+            key={`${token}-${index}`}
+            className="group inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs text-primary transition-colors hover:border-destructive/60 hover:bg-destructive/10 hover:text-destructive"
+            onClick={() => removeToken(index)}
+            aria-label={`Remove ${token}`}
+          >
+            {token}
+            <span className="opacity-50 group-hover:opacity-100">×</span>
+          </button>
+        ))}
+        <input className="min-w-20 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60" aria-label={`${param.name} value`} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleKeyDown} placeholder={tokens.length ? 'type + space' : param.default} />
       </div>
       {(localError || error) ? <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1 text-xs text-destructive">{localError || error}</div> : null}
     </div>

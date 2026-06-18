@@ -43,10 +43,12 @@ export function BackendHealthStatus() {
   }, []);
 
   return (
-    <Card className="bg-gradient-card">
+    <Card variant="glass">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Activity className="h-5 w-5 text-primary" />
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
+            <Activity className="h-4 w-4" />
+          </span>
           Backend Health
         </CardTitle>
         <CardDescription>Live diagnostic check against the Flask API.</CardDescription>

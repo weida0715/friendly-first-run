@@ -209,9 +209,13 @@ export function BTCUSDTPriceChart({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="glass space-y-2 rounded-xl p-3">
       <div ref={containerRef} data-testid="btcusdt-price-chart" style={{ height, width: '100%' }} />
-      <div ref={legendRef} data-testid="btcusdt-price-chart-legend" className="text-xs text-muted-foreground" />
+      <div
+        ref={legendRef}
+        data-testid="btcusdt-price-chart-legend"
+        className="rounded-md border border-border/50 bg-background/40 px-2 py-1 font-mono text-[11px] text-muted-foreground backdrop-blur-sm"
+      />
     </div>
   );
 }
