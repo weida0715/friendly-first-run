@@ -21,12 +21,12 @@ export function SidebarNav({ mobile = false }: SidebarNavProps) {
   return (
     <aside
       className={cn(
-        'w-72 shrink-0 border-r bg-card/40',
+        'w-72 shrink-0 border-r border-sidebar-border bg-sidebar/95 text-sidebar-foreground backdrop-blur',
         mobile ? 'flex h-full flex-col' : 'hidden lg:flex lg:flex-col',
       )}
       data-sidebar-nav
     >
-      <div className="border-b px-5 py-4">
+      <div className="border-b border-sidebar-border px-5 py-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Bitcoin Experimental Engine</p>
       </div>
 
@@ -44,12 +44,12 @@ export function SidebarNav({ mobile = false }: SidebarNavProps) {
                   className={cn(
                     'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
                     active
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                      ? 'bg-sidebar-accent text-primary shadow-[inset_2px_0_0_hsl(var(--primary))]'
+                      : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
                   )}
                 >
-                  <Icon className="h-4 w-4" />
-                  <span>{item.label}</span>
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{item.label}</span>
                 </Link>
               );
             })}
@@ -70,12 +70,12 @@ export function SidebarNav({ mobile = false }: SidebarNavProps) {
                   className={cn(
                     'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
                     active
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                      ? 'bg-sidebar-accent text-primary shadow-[inset_2px_0_0_hsl(var(--primary))]'
+                      : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
                   )}
                 >
-                  <Icon className="h-4 w-4" />
-                  <span>{item.label}</span>
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{item.label}</span>
                 </Link>
               );
               })}
