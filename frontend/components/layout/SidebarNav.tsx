@@ -21,13 +21,13 @@ export function SidebarNav({ mobile = false }: SidebarNavProps) {
   return (
     <aside
       className={cn(
-        'w-72 shrink-0 border-r border-sidebar-border bg-sidebar/95 text-sidebar-foreground backdrop-blur',
+        'w-72 shrink-0 border-r border-sidebar-border/60 bg-sidebar/70 text-sidebar-foreground backdrop-blur-xl',
         mobile ? 'flex h-full flex-col' : 'hidden lg:flex lg:flex-col',
       )}
       data-sidebar-nav
     >
-      <div className="border-b border-sidebar-border px-5 py-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Bitcoin Experimental Engine</p>
+      <div className="border-b border-sidebar-border/60 px-5 py-4">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Bitcoin Experimental Engine</p>
       </div>
 
       <div className="flex-1 space-y-6 overflow-y-auto px-4 py-5">
@@ -42,13 +42,13 @@ export function SidebarNav({ mobile = false }: SidebarNavProps) {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
+                    'group/nav relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-all duration-200',
                     active
-                      ? 'bg-sidebar-accent text-primary shadow-[inset_2px_0_0_hsl(var(--primary))]'
-                      : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
+                      ? 'bg-gradient-to-r from-primary/15 via-primary/8 to-transparent text-primary shadow-[inset_2px_0_0_hsl(var(--primary))]'
+                      : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground hover:translate-x-0.5',
                   )}
                 >
-                  <Icon className="h-4 w-4 shrink-0" />
+                  <Icon className={cn('h-4 w-4 shrink-0 transition-transform', active && 'scale-110')} />
                   <span className="truncate">{item.label}</span>
                 </Link>
               );
@@ -60,7 +60,7 @@ export function SidebarNav({ mobile = false }: SidebarNavProps) {
           <section>
             <p className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Administration</p>
             <nav className="space-y-1">
-              {adminItems.map((item) => {
+            {adminItems.map((item) => {
               const Icon = item.icon;
               const active = isActive(item.href);
               return (
@@ -68,13 +68,13 @@ export function SidebarNav({ mobile = false }: SidebarNavProps) {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
+                    'group/nav relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-all duration-200',
                     active
-                      ? 'bg-sidebar-accent text-primary shadow-[inset_2px_0_0_hsl(var(--primary))]'
-                      : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
+                      ? 'bg-gradient-to-r from-primary/15 via-primary/8 to-transparent text-primary shadow-[inset_2px_0_0_hsl(var(--primary))]'
+                      : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground hover:translate-x-0.5',
                   )}
                 >
-                  <Icon className="h-4 w-4 shrink-0" />
+                  <Icon className={cn('h-4 w-4 shrink-0 transition-transform', active && 'scale-110')} />
                   <span className="truncate">{item.label}</span>
                 </Link>
               );

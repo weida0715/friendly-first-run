@@ -38,17 +38,17 @@ export function TopBar({ onOpenMobileNav }: TopBarProps) {
   };
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-xl">
+    <header className="sticky top-0 z-40 border-b border-border/50 bg-background/55 backdrop-blur-2xl supports-[backdrop-filter]:bg-background/45 surface-hairline">
       <div className="container flex h-14 min-w-0 items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <Button variant="ghost" size="sm" className="lg:hidden" onClick={onOpenMobileNav}>
             <Menu className="h-5 w-5" />
           </Button>
-          <Link href="/landing" className="flex min-w-0 items-center gap-2 text-sm font-semibold">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gradient-accent text-primary-foreground shadow-[var(--glow-primary)]">
+          <Link href="/landing" className="group flex min-w-0 items-center gap-2 text-sm font-semibold">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-accent text-primary-foreground shadow-[var(--glow-primary)] transition-transform group-hover:scale-105 group-hover:shadow-[var(--glow-accent)]">
               <Activity className="h-4 w-4" />
             </span>
-            <span className="truncate">BEE</span>
+            <span className="truncate bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">BEE</span>
           </Link>
           <nav className="hidden items-center gap-3 text-sm text-muted-foreground xl:flex">
             {(isAuthenticated ? topNavItems : publicNavItems).map((item) => (
@@ -56,8 +56,10 @@ export function TopBar({ onOpenMobileNav }: TopBarProps) {
                     key={item.href}
                     href={item.href}
                     className={cn(
-                      'rounded-md px-2 py-1 hover:text-foreground',
-                      isActive(item.href) ? 'bg-primary/10 text-primary' : 'text-muted-foreground',
+                      'relative rounded-md px-2.5 py-1 transition-colors hover:text-foreground',
+                      isActive(item.href)
+                        ? 'bg-primary/10 text-primary shadow-[inset_0_-2px_0_hsl(var(--primary))]'
+                        : 'text-muted-foreground',
                     )}
                   >
                     {item.label}
