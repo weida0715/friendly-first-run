@@ -19,9 +19,9 @@ export interface WizardViewProps extends Omit<BaseViewProps, 'children'> {
 }
 
 function stepStatusClass(status: WizardStepStatus) {
-  if (status === 'completed') return 'border-primary bg-primary text-primary-foreground shadow-sm';
-  if (status === 'current') return 'border-rose-600 bg-rose-600 text-white shadow-sm';
-  return 'border-slate-200 bg-white text-slate-500';
+  if (status === 'completed') return 'border-primary bg-primary text-primary-foreground shadow-[var(--glow-primary)]';
+  if (status === 'current') return 'border-accent bg-accent text-accent-foreground shadow-[var(--glow-accent)]';
+  return 'border-border bg-card text-muted-foreground';
 }
 
 function StepIcon({ label, status }: { label: string; status: WizardStepStatus }) {
