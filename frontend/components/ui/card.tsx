@@ -1,11 +1,27 @@
 import * as React from 'react';
 import { cn } from '@/lib/utils';
 
-export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+type CardVariant = 'default' | 'glass' | 'solid' | 'outline';
+
+const cardVariants: Record<CardVariant, string> = {
+  default:
+    'border-border/60 bg-gradient-card backdrop-blur-md shadow-[0_4px_20px_-8px_hsl(var(--primary)/0.15)] hover:border-primary/40 hover:shadow-[0_10px_30px_-10px_hsl(var(--primary)/0.35)] hover:-translate-y-0.5',
+  glass:
+    'glass hover:border-primary/45 hover:shadow-[0_18px_40px_-16px_hsl(var(--primary)/0.45)] hover:-translate-y-0.5',
+  solid: 'border-border/60 bg-card shadow-sm',
+  outline: 'border-border/70 bg-transparent hover:border-primary/40',
+};
+
+export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+  variant?: CardVariant;
+}
+
+export function Card({ className, variant = 'default', ...props }: CardProps) {
   return (
     <div
       className={cn(
-        'rounded-xl border border-border/60 bg-gradient-card text-card-foreground shadow-sm backdrop-blur-sm transition-colors hover:border-primary/30',
+        'group/card relative rounded-xl border text-card-foreground transition-all duration-300 ease-out',
+        cardVariants[variant],
         className,
       )}
       {...props}

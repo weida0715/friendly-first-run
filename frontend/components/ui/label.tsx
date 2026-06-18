@@ -4,5 +4,13 @@ import { cn } from '@/lib/utils';
 export type LabelProps = React.LabelHTMLAttributes<HTMLLabelElement>;
 
 export function Label({ className, ...props }: LabelProps) {
-  return <label className={cn('text-sm font-medium leading-none', className)} {...props} />;
+  return (
+    <label
+      className={cn(
+        'text-xs font-medium uppercase tracking-wider text-muted-foreground leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70',
+        className,
+      )}
+      {...props}
+    />
+  );
 }
