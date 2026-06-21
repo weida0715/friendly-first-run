@@ -1,10 +1,11 @@
-'use client';
+"use client";
 
 import { useEffect, useRef } from 'react';
 import {
   CandlestickSeries,
   ColorType,
   createChart,
+  type CandlestickData,
   type IChartApi,
   type ISeriesApi,
   type UTCTimestamp,
@@ -43,6 +44,36 @@ export interface BTCUSDTPriceChartProps {
 
 const LOAD_OLDER_THRESHOLD = 200;
 
+function toSeriesPoint(point: BTCUSDTChartPoint): CandlestickData {
+  return {
+    time: point.time as UTCTimestamp,
+    open: Number(point.open),
+    high: Number(point.high),
+    low: Number(point.low),
+    close: Number(point.close),
+  };
+}
+
+function isPrefixMatch(previous: BTCUSDTChartPoint[], next: BTCUSDTChartPoint[]): boolean {
+  if (previous.length > next.length) return false;
+  for (let index = 0; index < previous.length; index += 1) {
+    if (Number(previous[index].time) !== Number(next[index].time)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function pointsEqual(a: BTCUSDTChartPoint, b: BTCUSDTChartPoint): boolean {
+  return (
+    Number(a.time) === Number(b.time)
+    && Number(a.open) === Number(b.open)
+    && Number(a.high) === Number(b.high)
+    && Number(a.low) === Number(b.low)
+    && Number(a.close) === Number(b.close)
+  );
+}
+
 export function BTCUSDTPriceChart({
   data,
   markers,
@@ -57,6 +88,8 @@ export function BTCUSDTPriceChart({
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const initializedRef = useRef(false);
   const onRequestOlderRef = useRef<(() => void) | undefined>(onRequestOlder);
+  const previousDataRef = useRef<BTCUSDTChartPoint[]>([]);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
   useEffect(() => {
     onRequestOlderRef.current = onRequestOlder;
@@ -125,6 +158,14 @@ export function BTCUSDTPriceChart({
           }
         });
       }
+
+      if (typeof ResizeObserver !== 'undefined') {
+        resizeObserverRef.current = new ResizeObserver((entries) => {
+          const width = entries[0]?.contentRect.width ?? container.clientWidth;
+          chart.applyOptions({ width });
+        });
+        resizeObserverRef.current.observe(container);
+      }
     }
 
     const chart = chartRef.current;
@@ -133,42 +174,43 @@ export function BTCUSDTPriceChart({
 
     chart.applyOptions({ width: container.clientWidth || 640, height });
 
-    const safeData = normalizeAscUnique(data);
+    const nextData = normalizeAscUnique(data);
+    const previousData = previousDataRef.current;
+    const shouldReplaceWholeSeries =
+      previousData.length === 0
+      || nextData.length === 0
+      || !isPrefixMatch(previousData, nextData)
+      || nextData.length < previousData.length;
 
-    candleSeries.setData(
-      safeData.map((point) => ({
-        time: point.time as UTCTimestamp,
-        open: Number(point.open),
-        high: Number(point.high),
-        low: Number(point.low),
-        close: Number(point.close),
-      })),
-    );
-
-    const setLegend = (point?: {
-      time: number;
-      open: number;
-      high: number;
-      low: number;
-      close: number;
-    }) => {
-      if (!legendRef.current) return;
-      if (!point) {
-        legendRef.current.textContent = 'Hover candle to inspect datetime and OHLC';
-        return;
+    if (shouldReplaceWholeSeries) {
+      candleSeries.setData(nextData.map(toSeriesPoint));
+      if (nextData.length > 0) {
+        chart.timeScale().scrollToRealTime?.();
       }
-      const dt = new Date(point.time * 1000).toISOString().replace('T', ' ').replace('Z', ' UTC');
-      legendRef.current.textContent = `${dt} | O: ${point.open.toFixed(2)} H: ${point.high.toFixed(2)} L: ${point.low.toFixed(2)} C: ${point.close.toFixed(2)}`;
-    };
+    } else if (nextData.length > previousData.length) {
+      for (const point of nextData.slice(previousData.length)) {
+        candleSeries.update(toSeriesPoint(point));
+      }
+      chart.timeScale().scrollToRealTime?.();
+    } else if (nextData.length > 0) {
+      const previousLast = previousData[previousData.length - 1];
+      const nextLast = nextData[nextData.length - 1];
+      if (!pointsEqual(previousLast, nextLast)) {
+        candleSeries.update(toSeriesPoint(nextLast));
+      }
+    }
 
-    const normalized = safeData.map((point) => ({
-      time: point.time,
-      open: Number(point.open),
-      high: Number(point.high),
-      low: Number(point.low),
-      close: Number(point.close),
-    }));
-    setLegend(normalized[normalized.length - 1]);
+    previousDataRef.current = nextData;
+
+    const latest = nextData[nextData.length - 1];
+    if (legendRef.current) {
+      if (!latest) {
+        legendRef.current.textContent = 'Hover candle to inspect datetime and OHLC';
+      } else {
+        const dt = new Date(latest.time * 1000).toISOString().replace('T', ' ').replace('Z', ' UTC');
+        legendRef.current.textContent = `${dt} | O: ${Number(latest.open).toFixed(2)} H: ${Number(latest.high).toFixed(2)} L: ${Number(latest.low).toFixed(2)} C: ${Number(latest.close).toFixed(2)}`;
+      }
+    }
 
     if (typeof (candleSeries as any).setMarkers === 'function') {
       (candleSeries as any).setMarkers((markers ?? []).map((marker) => ({
@@ -180,34 +222,37 @@ export function BTCUSDTPriceChart({
       })));
     }
 
-    if (!initializedRef.current) {
+    if (!initializedRef.current && nextData.length > 0) {
       chart.timeScale().fitContent();
       initializedRef.current = true;
     }
-
-    let resizeObserver: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== 'undefined') {
-      resizeObserver = new ResizeObserver((entries) => {
-        const width = entries[0]?.contentRect.width ?? container.clientWidth;
-        chart.applyOptions({ width });
-      });
-      resizeObserver.observe(container);
-    }
-
-    return () => {
-      resizeObserver?.disconnect();
-      // keep chart instance alive across data updates; teardown on component unmount only
-    };
   }, [data, error, height, loading, markers]);
 
   useEffect(() => {
     return () => {
+      resizeObserverRef.current?.disconnect();
       chartRef.current?.remove();
       chartRef.current = null;
       seriesRef.current = null;
+      previousDataRef.current = [];
       initializedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (data?.length === 0 && chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+      previousDataRef.current = [];
+      initializedRef.current = false;
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+      if (legendRef.current) {
+        legendRef.current.textContent = 'Hover candle to inspect datetime and OHLC';
+      }
+    }
+  }, [data]);
 
   if (loading) {
     return <LoadingState message="Loading BTCUSDT price data..." />;

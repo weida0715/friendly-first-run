@@ -918,11 +918,44 @@ export interface BTCUSDTMetadataResponse {
     interval: '1m';
     latestTimestamp?: string | null;
     earliestTimestamp?: string | null;
+    liveMode?: BTCUSDTLiveModeState;
   };
+}
+
+export interface BTCUSDTLiveModeState {
+  enabled?: boolean;
+  running?: boolean;
+  lastSyncedAt?: string | null;
+  lastError?: string | null;
 }
 
 export function getBTCUSDTMetadata(): Promise<BTCUSDTMetadataResponse> {
   return apiGet<BTCUSDTMetadataResponse>(API_ENDPOINTS.marketData.btcusdtMetadata);
+}
+
+export interface BTCUSDTAdminActionResponse {
+  ok: boolean;
+  data?: {
+    status?: BTCUSDTLiveModeState;
+    updatedRows?: number;
+    clearedRows?: number;
+    range?: {
+      start?: string | null;
+      end?: string | null;
+    };
+  };
+}
+
+export function catchUpBTCUSDTKlines(): Promise<BTCUSDTAdminActionResponse> {
+  return apiPost<BTCUSDTAdminActionResponse>(API_ENDPOINTS.marketData.btcusdtCatchUp);
+}
+
+export function setBTCUSDTLiveMode(enabled: boolean): Promise<BTCUSDTAdminActionResponse> {
+  return apiPost<BTCUSDTAdminActionResponse>(API_ENDPOINTS.marketData.btcusdtLiveMode, { enabled });
+}
+
+export function clearBTCUSDTKlines(): Promise<BTCUSDTAdminActionResponse> {
+  return apiDelete<BTCUSDTAdminActionResponse>(API_ENDPOINTS.marketData.btcusdtClearKlines);
 }
 
 export type BTCUSDTInterval = '1m' | '5m' | '15m' | '30m' | '1h' | '2h' | '4h' | '1d';

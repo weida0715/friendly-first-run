@@ -3,7 +3,9 @@ import { render, screen } from '@testing-library/react';
 import { BTCUSDTPriceChart } from '@/components/charts/BTCUSDTPriceChart';
 
 const setDataMock = jest.fn();
+const updateMock = jest.fn();
 const fitContentMock = jest.fn();
+const scrollToRealTimeMock = jest.fn();
 const applyOptionsMock = jest.fn();
 const removeMock = jest.fn();
 const subscribeCrosshairMoveMock = jest.fn();
@@ -24,9 +26,10 @@ jest.mock('lightweight-charts', () => ({
   CandlestickSeries: 'CandlestickSeries',
   ColorType: { Solid: 'solid' },
   createChart: jest.fn(() => ({
-    addSeries: jest.fn(() => ({ setData: setDataMock })),
+    addSeries: jest.fn(() => ({ setData: setDataMock, update: updateMock, setMarkers: jest.fn() })),
     timeScale: jest.fn(() => ({
       fitContent: fitContentMock,
+      scrollToRealTime: scrollToRealTimeMock,
       subscribeVisibleLogicalRangeChange: subscribeVisibleLogicalRangeChangeMock,
     })),
     subscribeCrosshairMove: subscribeCrosshairMoveMock,
@@ -38,7 +41,9 @@ jest.mock('lightweight-charts', () => ({
 describe('BTCUSDTPriceChart', () => {
   beforeEach(() => {
     setDataMock.mockClear();
+    updateMock.mockClear();
     fitContentMock.mockClear();
+    scrollToRealTimeMock.mockClear();
     applyOptionsMock.mockClear();
     removeMock.mockClear();
     subscribeCrosshairMoveMock.mockClear();
@@ -80,6 +85,34 @@ describe('BTCUSDTPriceChart', () => {
       },
     ]);
     expect(fitContentMock).toHaveBeenCalled();
+  });
+
+  it('updates the latest bar incrementally and scrolls right', () => {
+    const { rerender } = render(
+      <BTCUSDTPriceChart
+        data={[
+          { time: 1767225600, open: '50000.1', high: '50100.0', low: '49900.0', close: '50050.2' },
+        ]}
+      />,
+    );
+
+    rerender(
+      <BTCUSDTPriceChart
+        data={[
+          { time: 1767225600, open: '50000.1', high: '50100.0', low: '49900.0', close: '50050.2' },
+          { time: 1767225660, open: '50050.2', high: '50120.0', low: '50020.0', close: '50100.0' },
+        ]}
+      />,
+    );
+
+    expect(updateMock).toHaveBeenCalledWith({
+      time: 1767225660,
+      open: 50050.2,
+      high: 50120,
+      low: 50020,
+      close: 50100,
+    });
+    expect(scrollToRealTimeMock).toHaveBeenCalled();
   });
 
   it('cleans up chart on unmount', () => {

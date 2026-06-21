@@ -125,3 +125,18 @@ class MarketDataService:
             normalized.append(ts.replace(tzinfo=UTC)
                               if ts.tzinfo is None else ts.astimezone(UTC))
         return normalized
+
+    def clear_btcusdt_1m_cache(self) -> int:
+        try:
+            with self._unit_of_work_factory() as uow:
+                if uow.market_data is None:
+                    raise MarketDataRefreshError(
+                        "Market data repository is unavailable")
+                cleared = uow.market_data.clear_all()
+        except MarketDataRefreshError:
+            raise
+        except Exception as exc:
+            raise MarketDataRefreshError(
+                f"Failed to clear BTCUSDT 1m cache: {exc.__class__.__name__}: {exc}") from exc
+
+        return cleared

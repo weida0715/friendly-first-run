@@ -1,10 +1,43 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from app.services.market_data_service import MarketDataRefreshError, RefreshSummary
+
+
+def _minute_timestamps(start: datetime, end: datetime) -> list[datetime]:
+    timestamps: list[datetime] = []
+    cursor = start
+    step = timedelta(minutes=1)
+    while cursor <= end:
+        timestamps.append(cursor)
+        cursor += step
+    return timestamps
+
+
+class CachedBTCUSDTService:
+    def __init__(self, *, initial_cached: set[datetime] | None = None) -> None:
+        self._cached_timestamps = set(initial_cached or set())
+
+    def list_cached_btcusdt_1m_timestamps(self, start: datetime, end: datetime) -> list[datetime]:
+        return sorted(
+            timestamp for timestamp in self._cached_timestamps
+            if start <= timestamp <= end
+        )
+
+    def _cache_window(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        gaps: set[datetime] | None = None,
+    ) -> None:
+        blocked = gaps or set()
+        for timestamp in _minute_timestamps(start, end):
+            if timestamp not in blocked:
+                self._cached_timestamps.add(timestamp)
 
 
 def test_refresh_script_with_lookback_invokes_service(monkeypatch, capsys) -> None:
@@ -56,9 +89,10 @@ def test_ingest_script_chunks_windows_and_aggregates(monkeypatch, capsys) -> Non
 
     calls: list[tuple[datetime, datetime]] = []
 
-    class FakeService:
+    class FakeService(CachedBTCUSDTService):
         def refresh_btcusdt_1m(self, start: datetime, end: datetime) -> RefreshSummary:
             calls.append((start, end))
+            self._cache_window(start, end)
             return RefreshSummary(
                 symbol="BTCUSDT",
                 interval="1m",
@@ -90,7 +124,7 @@ def test_ingest_script_chunks_windows_and_aggregates(monkeypatch, capsys) -> Non
 def test_ingest_script_returns_failure_on_window_error(monkeypatch, capsys) -> None:
     from app.scripts import ingest_btcusdt_klines as script
 
-    class FailingService:
+    class FailingService(CachedBTCUSDTService):
         def refresh_btcusdt_1m(self, start: datetime, end: datetime) -> RefreshSummary:
             raise MarketDataRefreshError("binance unavailable")
 
@@ -111,11 +145,12 @@ def test_ingest_script_can_continue_on_error_within_failure_budget(monkeypatch, 
 
     calls = {"count": 0}
 
-    class FlakyService:
+    class FlakyService(CachedBTCUSDTService):
         def refresh_btcusdt_1m(self, start: datetime, end: datetime) -> RefreshSummary:
             calls["count"] += 1
             if calls["count"] == 1:
                 raise MarketDataRefreshError("first window failed")
+            self._cache_window(start, end)
             return RefreshSummary(
                 symbol="BTCUSDT",
                 interval="1m",
@@ -144,8 +179,9 @@ def test_ingest_script_can_continue_on_error_within_failure_budget(monkeypatch, 
 def test_ingest_script_logs_periodic_progress(monkeypatch, capsys) -> None:
     from app.scripts import ingest_btcusdt_klines as script
 
-    class FakeService:
+    class FakeService(CachedBTCUSDTService):
         def refresh_btcusdt_1m(self, start: datetime, end: datetime) -> RefreshSummary:
+            self._cache_window(start, end)
             return RefreshSummary(
                 symbol="BTCUSDT",
                 interval="1m",
@@ -176,13 +212,15 @@ def test_ingest_script_logs_periodic_progress(monkeypatch, capsys) -> None:
 def test_ingest_script_handles_keyboard_interrupt(monkeypatch, capsys) -> None:
     from app.scripts import ingest_btcusdt_klines as script
 
-    class InterruptingService:
+    class InterruptingService(CachedBTCUSDTService):
         def __init__(self) -> None:
+            super().__init__()
             self.calls = 0
 
         def refresh_btcusdt_1m(self, start: datetime, end: datetime) -> RefreshSummary:
             self.calls += 1
             if self.calls == 1:
+                self._cache_window(start, end)
                 return RefreshSummary(
                     symbol="BTCUSDT",
                     interval="1m",
@@ -213,12 +251,23 @@ def test_ingest_script_resume_from_cache_skips_to_latest(monkeypatch, capsys) ->
 
     calls: list[tuple[datetime, datetime]] = []
 
-    class FakeService:
+    class FakeService(CachedBTCUSDTService):
+        def __init__(self) -> None:
+            super().__init__(
+                initial_cached=set(
+                    _minute_timestamps(
+                        datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+                        datetime(2026, 1, 1, 1, 0, tzinfo=UTC),
+                    )
+                )
+            )
+
         def get_latest_cached_btcusdt_1m_timestamp(self) -> datetime | None:
             return datetime(2026, 1, 1, 1, 0, tzinfo=UTC)
 
         def refresh_btcusdt_1m(self, start: datetime, end: datetime) -> RefreshSummary:
             calls.append((start, end))
+            self._cache_window(start, end)
             return RefreshSummary(
                 symbol="BTCUSDT",
                 interval="1m",
@@ -247,7 +296,17 @@ def test_ingest_script_resume_from_cache_skips_to_latest(monkeypatch, capsys) ->
 def test_ingest_script_resume_from_cache_can_skip_entire_range(monkeypatch, capsys) -> None:
     from app.scripts import ingest_btcusdt_klines as script
 
-    class FakeService:
+    class FakeService(CachedBTCUSDTService):
+        def __init__(self) -> None:
+            super().__init__(
+                initial_cached=set(
+                    _minute_timestamps(
+                        datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+                        datetime(2026, 1, 1, 3, 0, tzinfo=UTC),
+                    )
+                )
+            )
+
         def get_latest_cached_btcusdt_1m_timestamp(self) -> datetime | None:
             return datetime(2026, 1, 1, 3, 0, tzinfo=UTC)
 
@@ -273,15 +332,18 @@ def test_ingest_script_reconcile_cache_fills_head_internal_and_tail(monkeypatch,
 
     calls: list[tuple[datetime, datetime]] = []
 
-    class FakeService:
-        def list_cached_btcusdt_1m_timestamps(self, start: datetime, end: datetime) -> list[datetime]:
-            return [
-                datetime(2026, 1, 1, 1, 0, tzinfo=UTC),
-                datetime(2026, 1, 1, 2, 0, tzinfo=UTC),
-            ]
+    class FakeService(CachedBTCUSDTService):
+        def __init__(self) -> None:
+            super().__init__(
+                initial_cached={
+                    datetime(2026, 1, 1, 1, 0, tzinfo=UTC),
+                    datetime(2026, 1, 1, 2, 0, tzinfo=UTC),
+                }
+            )
 
         def refresh_btcusdt_1m(self, start: datetime, end: datetime) -> RefreshSummary:
             calls.append((start, end))
+            self._cache_window(start, end)
             return RefreshSummary("BTCUSDT", "1m", start, end, 1, 1, 0)
 
     monkeypatch.setattr(script, "MarketDataService", FakeService)
@@ -310,17 +372,20 @@ def test_ingest_script_reconcile_cache_fills_internal_gap(monkeypatch, capsys) -
 
     calls: list[tuple[datetime, datetime]] = []
 
-    class FakeService:
-        def list_cached_btcusdt_1m_timestamps(self, start: datetime, end: datetime) -> list[datetime]:
-            return [
-                datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
-                datetime(2026, 1, 1, 0, 1, tzinfo=UTC),
-                datetime(2026, 1, 1, 0, 4, tzinfo=UTC),
-                datetime(2026, 1, 1, 0, 5, tzinfo=UTC),
-            ]
+    class FakeService(CachedBTCUSDTService):
+        def __init__(self) -> None:
+            super().__init__(
+                initial_cached={
+                    datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+                    datetime(2026, 1, 1, 0, 1, tzinfo=UTC),
+                    datetime(2026, 1, 1, 0, 4, tzinfo=UTC),
+                    datetime(2026, 1, 1, 0, 5, tzinfo=UTC),
+                }
+            )
 
         def refresh_btcusdt_1m(self, start: datetime, end: datetime) -> RefreshSummary:
             calls.append((start, end))
+            self._cache_window(start, end)
             return RefreshSummary("BTCUSDT", "1m", start, end, 1, 1, 0)
 
     monkeypatch.setattr(script, "MarketDataService", FakeService)
@@ -337,6 +402,45 @@ def test_ingest_script_reconcile_cache_fills_internal_gap(monkeypatch, capsys) -
         (datetime(2026, 1, 1, 0, 2, tzinfo=UTC),
          datetime(2026, 1, 1, 0, 4, tzinfo=UTC)),
     ]
+
+
+def test_ingest_script_post_run_gap_check_repairs_missing_minute(monkeypatch, capsys) -> None:
+    from app.scripts import ingest_btcusdt_klines as script
+
+    calls: list[tuple[datetime, datetime]] = []
+    missing_minute = datetime(2026, 1, 1, 0, 3, tzinfo=UTC)
+
+    class FakeService(CachedBTCUSDTService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.refresh_count = 0
+
+        def refresh_btcusdt_1m(self, start: datetime, end: datetime) -> RefreshSummary:
+            self.refresh_count += 1
+            calls.append((start, end))
+            if self.refresh_count == 1:
+                self._cache_window(start, end, gaps={missing_minute})
+            else:
+                self._cache_window(start, end)
+            return RefreshSummary("BTCUSDT", "1m", start, end, 1, 1, 0)
+
+    monkeypatch.setattr(script, "MarketDataService", FakeService)
+    code = script.main([
+        "--from", "2026-01-01T00:00:00Z",
+        "--to", "2026-01-01T00:05:00Z",
+        "--chunk-hours", "1",
+    ])
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert calls == [
+        (datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+         datetime(2026, 1, 1, 0, 5, tzinfo=UTC)),
+        (datetime(2026, 1, 1, 0, 3, tzinfo=UTC),
+         datetime(2026, 1, 1, 0, 4, tzinfo=UTC)),
+    ]
+    assert "post_run_missing_ranges=1" in out
+    assert "post_run_windows=1" in out
 
 
 def test_range_helper_rejects_invalid_combinations() -> None:

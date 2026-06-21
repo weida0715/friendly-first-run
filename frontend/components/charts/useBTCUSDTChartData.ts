@@ -2,12 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { ApiClientError, getBTCUSDTKlines } from "@/lib/api/client";
+import { ApiClientError, getBTCUSDTKlines, getBTCUSDTMetadata } from "@/lib/api/client";
 
 import type { BTCUSDTChartPoint } from "./BTCUSDTPriceChart";
-import { normalizeAscUnique } from "./utils";
+import { normalizeAscUnique, subscribeBTCUSDTCacheUpdates } from "./utils";
 
 const KLINE_FETCH_LIMIT = 2000;
+const LIVE_POLL_LIMIT = 4;
+const LIVE_METADATA_POLL_MS = 15000;
+const LIVE_DATA_POLL_MS = 60000;
 
 export interface BTCUSDTChartRange {
   start: string;
@@ -27,58 +30,164 @@ export function useBTCUSDTChartData(range?: BTCUSDTChartRange) {
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasMoreOlder, setHasMoreOlder] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [liveModeEnabled, setLiveModeEnabled] = useState(false);
   const dataRef = useRef<BTCUSDTChartPoint[]>([]);
   const loadingRef = useRef<boolean>(true);
   const loadingOlderRef = useRef<boolean>(false);
   const hasMoreOlderRef = useRef<boolean>(false);
+  const mountedRef = useRef(true);
+  const loadRangeRequestRef = useRef(0);
+
+  const loadRange = useCallback(async () => {
+    const requestId = loadRangeRequestRef.current + 1;
+    loadRangeRequestRef.current = requestId;
+    const shouldShowLoading = dataRef.current.length === 0;
+    if (shouldShowLoading) {
+      setLoading(true);
+    }
+    setError(null);
+
+    try {
+      const response = await getBTCUSDTKlines({
+        start: resolvedRange?.start,
+        end: resolvedRange?.end,
+        limit: KLINE_FETCH_LIMIT,
+        interval: "1m",
+      });
+      if (!mountedRef.current || loadRangeRequestRef.current !== requestId) return;
+      setData(normalizeAscUnique(response.data?.items ?? []));
+      setHasMoreOlder(Boolean(response.data?.has_more && response.data?.next_before));
+    } catch (err) {
+      if (!mountedRef.current || loadRangeRequestRef.current !== requestId) return;
+      if (err instanceof ApiClientError) {
+        if (err.status >= 500) {
+          setError("BTCUSDT chart data is temporarily unavailable. Please try again shortly.");
+        } else {
+          setError("Unable to load BTCUSDT chart data for the selected range.");
+        }
+      } else {
+        setError("Failed to load BTCUSDT chart data");
+      }
+      setData([]);
+    } finally {
+      if (mountedRef.current && loadRangeRequestRef.current === requestId && shouldShowLoading) {
+        setLoading(false);
+        setLoadingOlder(false);
+      }
+    }
+  }, [resolvedRange?.end, resolvedRange?.start]);
 
   useEffect(() => {
+    mountedRef.current = true;
     dataRef.current = data;
     loadingRef.current = loading;
     loadingOlderRef.current = loadingOlder;
     hasMoreOlderRef.current = hasMoreOlder;
-  }, [data, loading, loadingOlder, hasMoreOlder]);
+  }, [data, hasMoreOlder, loading, loadingOlder, liveModeEnabled]);
 
   useEffect(() => {
-    let active = true;
-    setLoading(true);
-    setError(null);
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
-    (async () => {
+  useEffect(() => {
+    void loadRange();
+  }, [loadRange]);
+
+  useEffect(() => {
+    return subscribeBTCUSDTCacheUpdates(() => {
+      void loadRange();
+    });
+  }, [loadRange]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const syncMetadata = async () => {
       try {
-        const response = await getBTCUSDTKlines({
-          start: resolvedRange?.start,
-          end: resolvedRange?.end,
-          limit: KLINE_FETCH_LIMIT,
-          interval: "1m",
-        });
-        if (!active) return;
-        setData(normalizeAscUnique(response.data?.items ?? []));
-        setHasMoreOlder(Boolean(response.data?.has_more && response.data?.next_before));
-      } catch (err) {
-        if (!active) return;
-        if (err instanceof ApiClientError) {
-          if (err.status >= 500) {
-            setError("BTCUSDT chart data is temporarily unavailable. Please try again shortly.");
-          } else {
-            setError("Unable to load BTCUSDT chart data for the selected range.");
-          }
-        } else {
-          setError("Failed to load BTCUSDT chart data");
+        const response = await getBTCUSDTMetadata();
+        if (!cancelled) {
+          setLiveModeEnabled(Boolean(response.data?.liveMode?.enabled));
         }
-        setData([]);
-      } finally {
-        if (active) {
-          setLoading(false);
-          setLoadingOlder(false);
+      } catch {
+        if (!cancelled) {
+          setLiveModeEnabled(false);
         }
       }
-    })();
+    };
+
+    void syncMetadata();
+    const timer = setInterval(() => {
+      void syncMetadata();
+    }, LIVE_METADATA_POLL_MS);
 
     return () => {
-      active = false;
+      cancelled = true;
+      clearInterval(timer);
     };
-  }, [resolvedRange?.end, resolvedRange?.start]);
+  }, []);
+
+  useEffect(() => {
+    if (!liveModeEnabled) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const mergeLatest = async () => {
+      try {
+        const response = await getBTCUSDTKlines({
+          limit: LIVE_POLL_LIMIT,
+          interval: "1m",
+        });
+        if (cancelled) return;
+        const latest = normalizeAscUnique(response.data?.items ?? []);
+        setData((prev) => {
+          if (!latest.length) {
+            return prev.length ? [] : prev;
+          }
+          if (!prev.length) {
+            return latest;
+          }
+
+          const prevLast = Number(prev[prev.length - 1]?.time);
+          const latestLast = Number(latest[latest.length - 1]?.time);
+          if (latestLast < prevLast) {
+            return prev;
+          }
+
+          const next = prev.slice();
+          for (const point of latest) {
+            const pointTime = Number(point.time);
+            if (pointTime < prevLast) {
+              continue;
+            }
+            const existingIndex = next.findIndex((item) => Number(item.time) === pointTime);
+            if (existingIndex >= 0) {
+              next[existingIndex] = point;
+            } else {
+              next.push(point);
+            }
+          }
+          return normalizeAscUnique(next);
+        });
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Failed to refresh live BTCUSDT candles:", err);
+        }
+      }
+    };
+
+    void mergeLatest();
+    const timer = setInterval(() => {
+      void mergeLatest();
+    }, LIVE_DATA_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [liveModeEnabled]);
 
   const loadOlder = useCallback(async (): Promise<void> => {
     if (loadingRef.current || loadingOlderRef.current || !hasMoreOlderRef.current || dataRef.current.length === 0) return;
@@ -104,5 +213,5 @@ export function useBTCUSDTChartData(range?: BTCUSDTChartRange) {
     }
   }, []);
 
-  return { data, loading, loadingOlder, hasMoreOlder, loadOlder, error, range: resolvedRange };
+  return { data, loading, loadingOlder, hasMoreOlder, loadOlder, error, range: resolvedRange, liveModeEnabled };
 }

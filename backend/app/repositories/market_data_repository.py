@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -271,3 +271,8 @@ class MarketDataRepository:
         ).all()
         rows = list(reversed(rows))
         return [self._to_domain(row) for row in rows]
+
+    def clear_all(self) -> int:
+        result = self._session.execute(delete(BTCUSDTKlineORM))
+        self._session.flush()
+        return int(result.rowcount or 0)

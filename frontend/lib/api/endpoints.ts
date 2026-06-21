@@ -71,6 +71,9 @@ export const API_ENDPOINTS = {
     btcusdtKlines: '/market-data/btcusdt/klines',
     btcusdtMetadata: '/market-data/btcusdt/metadata',
     btcusdtTargetPreview: '/market-data/btcusdt/target-preview',
+    btcusdtCatchUp: '/market-data/btcusdt/admin/catch-up',
+    btcusdtLiveMode: '/market-data/btcusdt/admin/live-mode',
+    btcusdtClearKlines: '/market-data/btcusdt/admin/klines',
   },
   system: {
     activeQueue: '/system/queue/active',

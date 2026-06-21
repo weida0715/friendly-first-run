@@ -1,12 +1,24 @@
 "use client";
 
 import { useEffect, useMemo, useState } from 'react';
+import { Pause, Play, RefreshCcw, Trash2 } from 'lucide-react';
 import { BaseView } from './BaseView';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { EmptyState } from '@/components/states/EmptyState';
-import { getActiveQueueSnapshot, getSystemEvents, getSystemEventsDownloadUrl, getSystemSettings, updateSystemSettings } from '@/lib/api/client';
+import {
+  catchUpBTCUSDTKlines,
+  clearBTCUSDTKlines,
+  getActiveQueueSnapshot,
+  getBTCUSDTMetadata,
+  getSystemEvents,
+  getSystemEventsDownloadUrl,
+  getSystemSettings,
+  setBTCUSDTLiveMode,
+  updateSystemSettings,
+} from '@/lib/api/client';
+import { notifyBTCUSDTCacheUpdated } from '@/components/charts/utils';
 
 type QueueJob = {
   job_id: string;
@@ -22,6 +34,19 @@ type QueueSnapshot = {
   active_jobs: QueueJob[];
 };
 
+type BTCUSDTLiveModeState = {
+  enabled?: boolean;
+  running?: boolean;
+  lastSyncedAt?: string | null;
+  lastError?: string | null;
+};
+
+type BTCUSDTMetadata = {
+  latestTimestamp?: string | null;
+  earliestTimestamp?: string | null;
+  liveMode?: BTCUSDTLiveModeState;
+};
+
 const SYSTEM_TERMINAL_REFRESH_MS = 5000;
 const SYSTEM_TERMINAL_FETCH_LIMIT = 5000;
 const SYSTEM_TERMINAL_VISIBLE_LIMIT = 5000;
@@ -33,44 +58,46 @@ export function SystemManagementView() {
   const [maxPermutations, setMaxPermutations] = useState('');
   const [maxRoundLogs, setMaxRoundLogs] = useState('');
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [marketData, setMarketData] = useState<BTCUSDTMetadata | null>(null);
+  const [marketActionMessage, setMarketActionMessage] = useState<string | null>(null);
   const [events, setEvents] = useState<Array<Record<string, unknown>>>([]);
   const [refreshTick, setRefreshTick] = useState(0);
 
-  useEffect(() => {
-    let active = true;
-    let timer: ReturnType<typeof setInterval> | null = null;
-    (async () => {
-      const [queueResponse, settingsResponse, eventsResponse] = await Promise.all([getActiveQueueSnapshot(), getSystemSettings(), getSystemEvents(undefined, SYSTEM_TERMINAL_FETCH_LIMIT)]);
-      if (active) {
-        setSnapshot((queueResponse.data?.queue as QueueSnapshot | undefined) ?? null);
-        const nextSettings = settingsResponse.data?.settings ?? {};
-        setSettings(nextSettings);
-        setTimeoutSeconds(String(nextSettings.queue_job_timeout_seconds ?? 21600));
-        setMaxPermutations(String(nextSettings.max_requested_permutations ?? 500));
-        setMaxRoundLogs(String(nextSettings.max_round_log_rows ?? 0));
-        setEvents((eventsResponse.data?.items ?? []) as Array<Record<string, unknown>>);
-      }
-    })();
-    timer = setInterval(() => {
-      if (active) setRefreshTick((tick) => tick + 1);
-    }, SYSTEM_TERMINAL_REFRESH_MS);
-    return () => {
-      active = false;
-      if (timer) clearInterval(timer);
-    };
-  }, []);
+  const loadAdminSnapshot = async () => {
+    const [queueResponse, settingsResponse, eventsResponse, metadataResponse] = await Promise.allSettled([
+      getActiveQueueSnapshot(),
+      getSystemSettings(),
+      getSystemEvents(undefined, SYSTEM_TERMINAL_FETCH_LIMIT),
+      getBTCUSDTMetadata(),
+    ]);
+    if (queueResponse.status === 'fulfilled') {
+      setSnapshot((queueResponse.value?.data?.queue as QueueSnapshot | undefined) ?? null);
+    }
+    if (settingsResponse.status === 'fulfilled') {
+      const nextSettings = settingsResponse.value?.data?.settings ?? {};
+      setSettings(nextSettings);
+      setTimeoutSeconds(String(nextSettings.queue_job_timeout_seconds ?? 21600));
+      setMaxPermutations(String(nextSettings.max_requested_permutations ?? 500));
+      setMaxRoundLogs(String(nextSettings.max_round_log_rows ?? 0));
+    }
+    if (eventsResponse.status === 'fulfilled') {
+      setEvents((eventsResponse.value?.data?.items ?? []) as Array<Record<string, unknown>>);
+    }
+    if (metadataResponse.status === 'fulfilled') {
+      setMarketData(metadataResponse.value?.data ?? null);
+    }
+  };
 
   useEffect(() => {
-    let cancelled = false;
-    void getSystemEvents(undefined, SYSTEM_TERMINAL_FETCH_LIMIT).then((response) => {
-      if (!cancelled) {
-        setEvents((response.data?.items ?? []) as Array<Record<string, unknown>>);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
+    void loadAdminSnapshot();
   }, [refreshTick]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setRefreshTick((tick) => tick + 1);
+    }, SYSTEM_TERMINAL_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, []);
 
   const activeJobs = snapshot?.active_jobs ?? [];
   const terminalRows = useMemo(() => events.map((event) => {
@@ -129,11 +156,42 @@ export function SystemManagementView() {
     setSaveMessage('System settings saved.');
   };
 
+  const refreshNow = () => {
+    setRefreshTick((tick) => tick + 1);
+  };
+
+  const runCatchUp = async () => {
+    setMarketActionMessage(null);
+    await catchUpBTCUSDTKlines();
+    setMarketActionMessage('BTCUSDT catch-up completed.');
+    notifyBTCUSDTCacheUpdated();
+    refreshNow();
+  };
+
+  const toggleLiveMode = async (enabled: boolean) => {
+    setMarketActionMessage(null);
+    await setBTCUSDTLiveMode(enabled);
+    setMarketActionMessage(enabled ? 'BTCUSDT live mode enabled.' : 'BTCUSDT live mode disabled.');
+    notifyBTCUSDTCacheUpdated();
+    refreshNow();
+  };
+
+  const clearData = async () => {
+    setMarketActionMessage(null);
+    const response = await clearBTCUSDTKlines();
+    setMarketActionMessage(`Cleared ${response.data?.clearedRows ?? 0} BTCUSDT rows.`);
+    notifyBTCUSDTCacheUpdated();
+    refreshNow();
+  };
+
+  const liveModeEnabled = Boolean(marketData?.liveMode?.enabled);
+  const liveModeRunning = Boolean(marketData?.liveMode?.running);
+
   return (
     <BaseView
       title="System Management"
       description="Monitor system health and operational settings."
-      actions={<div className="flex gap-2"><Button variant="outline">Refresh</Button><Button variant="outline">Export Health Snapshot</Button></div>}
+      actions={<div className="flex gap-2"><Button variant="outline" onClick={refreshNow}><RefreshCcw className="mr-2 h-4 w-4" />Refresh</Button><Button variant="outline">Export Health Snapshot</Button></div>}
     >
       <div className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -156,6 +214,29 @@ export function SystemManagementView() {
               {saveMessage ? <span className="text-sm text-muted-foreground">{saveMessage}</span> : null}
             </div>
             <p className="text-xs text-muted-foreground">Current timeout: {settings.queue_job_timeout_seconds ?? 21600}s · permutation cap: {settings.max_requested_permutations ?? 500} · round logs: {settings.max_round_log_rows ?? 0}</p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-card">
+          <CardHeader>
+            <CardTitle>BTCUSDT Data Controls</CardTitle>
+            <CardDescription>Catch up the cache, enable live ingestion, or clear the BTCUSDT 1m history.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Button onClick={runCatchUp} variant="outline"><RefreshCcw className="mr-2 h-4 w-4" />Catch up</Button>
+              <Button onClick={() => void toggleLiveMode(!liveModeEnabled)} variant={liveModeEnabled ? 'default' : 'outline'}>
+                {liveModeEnabled ? <Pause className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
+                {liveModeEnabled ? 'Disable live mode' : 'Enable live mode'}
+              </Button>
+              <Button onClick={clearData} variant="destructive"><Trash2 className="mr-2 h-4 w-4" />Clear data</Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Latest cached candle: {marketData?.latestTimestamp ?? 'none'} · live mode: {liveModeEnabled ? 'on' : 'off'}{liveModeRunning ? ' (running)' : ''}
+            </p>
+            {marketData?.liveMode?.lastSyncedAt ? <p className="text-xs text-muted-foreground">Last sync: {marketData.liveMode.lastSyncedAt}</p> : null}
+            {marketData?.liveMode?.lastError ? <p className="text-xs text-destructive">{marketData.liveMode.lastError}</p> : null}
+            {marketActionMessage ? <p className="text-sm text-muted-foreground">{marketActionMessage}</p> : null}
           </CardContent>
         </Card>
 

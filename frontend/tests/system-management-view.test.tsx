@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import { SystemManagementView } from '@/views/SystemManagementView';
 import { getSystemEventsDownloadUrl } from '@/lib/api/client';
@@ -6,19 +6,28 @@ import { getSystemEventsDownloadUrl } from '@/lib/api/client';
 const getActiveQueueSnapshotMock = jest.fn();
 const getSystemSettingsMock = jest.fn();
 const getSystemEventsMock = jest.fn();
+const getBTCUSDTMetadataMock = jest.fn();
+const catchUpBTCUSDTKlinesMock = jest.fn();
+const clearBTCUSDTKlinesMock = jest.fn();
+const setBTCUSDTLiveModeMock = jest.fn();
 const updateSystemSettingsMock = jest.fn();
 
 jest.mock('@/lib/api/client', () => ({
   ...jest.requireActual('@/lib/api/client'),
+  catchUpBTCUSDTKlines: (...args: unknown[]) => catchUpBTCUSDTKlinesMock(...args),
+  clearBTCUSDTKlines: (...args: unknown[]) => clearBTCUSDTKlinesMock(...args),
   getActiveQueueSnapshot: (...args: unknown[]) => getActiveQueueSnapshotMock(...args),
+  getBTCUSDTMetadata: (...args: unknown[]) => getBTCUSDTMetadataMock(...args),
   getSystemEvents: (...args: unknown[]) => getSystemEventsMock(...args),
   getSystemSettings: (...args: unknown[]) => getSystemSettingsMock(...args),
+  setBTCUSDTLiveMode: (...args: unknown[]) => setBTCUSDTLiveModeMock(...args),
   updateSystemSettings: (...args: unknown[]) => updateSystemSettingsMock(...args),
 }));
 
 describe('SystemManagementView', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    getBTCUSDTMetadataMock.mockResolvedValue({ ok: true, data: { latestTimestamp: null, earliestTimestamp: null, liveMode: { enabled: false, running: false, lastSyncedAt: null, lastError: null } } });
   });
 
   it('renders queue snapshot cards and jobs rows', async () => {
@@ -38,6 +47,7 @@ describe('SystemManagementView', () => {
     });
     getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, max_requested_permutations: 250, max_round_log_rows: 0 }, metadata: [] } });
     getSystemEventsMock.mockResolvedValue({ ok: true, data: { items: [] } });
+    getBTCUSDTMetadataMock.mockResolvedValueOnce({ ok: true, data: { latestTimestamp: '2026-01-01T00:00:00Z', earliestTimestamp: '2026-01-01T00:00:00Z', liveMode: { enabled: false, running: false, lastSyncedAt: '2026-01-01T00:00:00Z', lastError: null } } });
 
     render(<SystemManagementView />);
 
@@ -62,6 +72,7 @@ describe('SystemManagementView', () => {
     });
     getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, max_requested_permutations: 250, max_round_log_rows: 0 }, metadata: [] } });
     getSystemEventsMock.mockResolvedValue({ ok: true, data: { items: [] } });
+    getBTCUSDTMetadataMock.mockResolvedValueOnce({ ok: true, data: { latestTimestamp: null, earliestTimestamp: null, liveMode: { enabled: false, running: false, lastSyncedAt: null, lastError: null } } });
 
     render(<SystemManagementView />);
     expect(await screen.findByText('No queued jobs')).toBeInTheDocument();
@@ -71,6 +82,7 @@ describe('SystemManagementView', () => {
     getActiveQueueSnapshotMock.mockResolvedValueOnce({ ok: true, data: { queue: { queue_depth: 0, running_jobs: 0, active_jobs_total: 0, active_jobs: [] } } });
     getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, max_requested_permutations: 250, max_round_log_rows: 0 }, metadata: [] } });
     getSystemEventsMock.mockResolvedValue({ ok: true, data: { items: [] } });
+    getBTCUSDTMetadataMock.mockResolvedValueOnce({ ok: true, data: { latestTimestamp: null, earliestTimestamp: null, liveMode: { enabled: false, running: false, lastSyncedAt: null, lastError: null } } });
 
     render(<SystemManagementView />);
 
@@ -91,11 +103,33 @@ describe('SystemManagementView', () => {
     getActiveQueueSnapshotMock.mockResolvedValueOnce({ ok: true, data: { queue: { queue_depth: 0, running_jobs: 0, active_jobs_total: 0, active_jobs: [] } } });
     getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, max_requested_permutations: 250, max_round_log_rows: 0 }, metadata: [] } });
     getSystemEventsMock.mockResolvedValueOnce({ ok: true, data: { items } });
+    getBTCUSDTMetadataMock.mockResolvedValueOnce({ ok: true, data: { latestTimestamp: null, earliestTimestamp: null, liveMode: { enabled: false, running: false, lastSyncedAt: null, lastError: null } } });
 
     render(<SystemManagementView />);
 
     expect(await screen.findByText('Event 1')).toBeInTheDocument();
     expect(screen.queryByText('Event 5001')).not.toBeInTheDocument();
     expect(screen.getByText('Download Log').closest('a')).toHaveAttribute('href', getSystemEventsDownloadUrl());
+  });
+
+  it('renders BTCUSDT controls and triggers cache actions', async () => {
+    getActiveQueueSnapshotMock.mockResolvedValueOnce({ ok: true, data: { queue: { queue_depth: 0, running_jobs: 0, active_jobs_total: 0, active_jobs: [] } } });
+    getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, max_requested_permutations: 250, max_round_log_rows: 0 }, metadata: [] } });
+    getSystemEventsMock.mockResolvedValue({ ok: true, data: { items: [] } });
+    getBTCUSDTMetadataMock.mockResolvedValueOnce({ ok: true, data: { latestTimestamp: '2026-01-01T00:00:00Z', earliestTimestamp: '2026-01-01T00:00:00Z', liveMode: { enabled: false, running: false, lastSyncedAt: '2026-01-01T00:00:00Z', lastError: null } } });
+    catchUpBTCUSDTKlinesMock.mockResolvedValue({ ok: true, data: { updatedRows: 1, status: { enabled: false, running: false, lastSyncedAt: '2026-01-01T00:01:00Z', lastError: null } } });
+    clearBTCUSDTKlinesMock.mockResolvedValue({ ok: true, data: { clearedRows: 2, status: { enabled: false, running: false, lastSyncedAt: null, lastError: null } } });
+    setBTCUSDTLiveModeMock.mockResolvedValue({ ok: true, data: { status: { enabled: true, running: false, lastSyncedAt: null, lastError: null } } });
+
+    render(<SystemManagementView />);
+
+    expect(await screen.findByText('BTCUSDT Data Controls')).toBeInTheDocument();
+    expect(screen.getByText('Enable live mode')).toBeInTheDocument();
+    expect(screen.getByText('Catch up')).toBeInTheDocument();
+    expect(screen.getByText('Clear data')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /catch up/i }));
+    expect(await screen.findByText('BTCUSDT catch-up completed.')).toBeInTheDocument();
+    expect(catchUpBTCUSDTKlinesMock).toHaveBeenCalled();
   });
 });
