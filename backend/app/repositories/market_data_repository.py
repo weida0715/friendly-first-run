@@ -159,6 +159,22 @@ class MarketDataRepository:
             ).all()
         )
 
+    def count_range(self, start: datetime, end: datetime, interval: str = "1m") -> int:
+        if interval != "1m":
+            raise ValueError("Only BTCUSDT 1m interval is supported")
+
+        return int(
+            self._session.scalar(
+                select(func.count())
+                .select_from(BTCUSDTKlineORM)
+                .where(
+                    BTCUSDTKlineORM.Timestamp >= start,
+                    BTCUSDTKlineORM.Timestamp <= end,
+                )
+            )
+            or 0
+        )
+
     def list_range(self, start: datetime, end: datetime, interval: str = "1m") -> list[BTCUSDTKline]:
         if interval != "1m":
             raise ValueError("Only BTCUSDT 1m interval is supported")

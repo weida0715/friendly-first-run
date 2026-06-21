@@ -28,6 +28,7 @@ An Experiment combines an approved Blueprint, BTCUSDT data range, train/validati
 | `deterministic` | Whether permutation sampling uses the configured seed. |
 | `seed` | Random seed for sampling and random splits. |
 | `parameter_overrides` | Per-experiment changes to architecture, indicator, target, or split parameters. |
+| `indicator_output_scalers` | Per-experiment overrides for indicator output column scaling. |
 | `requested_permutation_count` | Requested number of parameter combinations, capped at max possible count. |
 
 ## Compilation
@@ -78,11 +79,12 @@ Sorts by timestamp, adds `_row_id`, shuffles with seed, slices splits, then sort
 4. Validate candle count.
 5. Split data.
 6. Apply indicators per split.
-7. Drop warm-up/null/NaN/infinite rows.
-8. Generate targets.
-9. Standardize features.
-10. For each permutation: rebuild features, train, predict, evaluate, backtest, persist model/logs.
-11. Mark complete or failed.
+7. Apply indicator output scalers.
+8. Drop warm-up/null/NaN/infinite rows.
+9. Generate targets.
+10. Standardize remaining features.
+11. For each permutation: rebuild features, train, predict, evaluate, backtest, persist model/logs.
+12. Mark complete or failed.
 
 ## Progress stages
 
@@ -98,4 +100,4 @@ Sorts by timestamp, adds `_row_id`, shuffles with seed, slices splits, then sort
 
 ## Leakage controls
 
-Indicators, targets, and scaling are handled per split to avoid train/test leakage.
+Indicators, targets, and scaling are handled per split to avoid train/test leakage. Output scalers default to `none` and can be overridden in the experiment wizard without changing the source Blueprint.

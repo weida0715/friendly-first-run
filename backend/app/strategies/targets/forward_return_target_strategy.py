@@ -17,6 +17,8 @@ class ForwardReturnTargetStrategy(TargetStrategy):
     binary_label_rule = "1 when close[t+lookahead] / close[t] - 1 > return_threshold, otherwise 0"
 
     def __init__(self, lookahead_period: int = 1, return_threshold: float = 0.0) -> None:
+        if lookahead_period < 1:
+            raise ValueError("lookahead_period must be >= 1")
         self.lookahead_period = lookahead_period
         self.return_threshold = return_threshold
 

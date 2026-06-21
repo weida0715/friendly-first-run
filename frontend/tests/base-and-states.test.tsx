@@ -31,7 +31,7 @@ describe('base and states', () => {
 
   it('LoadingState renders default and custom messages', () => {
     const { rerender } = render(<LoadingState />);
-    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(screen.getByText('Loading…')).toBeInTheDocument();
 
     rerender(<LoadingState message="Fetching records..." />);
     expect(screen.getByText('Fetching records...')).toBeInTheDocument();

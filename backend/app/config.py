@@ -30,11 +30,16 @@ class BaseConfig:
         "BINANCE_BASE_URL", "https://api.binance.com")
     SESSION_TIMEOUT_MINUTES: int = int(
         os.getenv("SESSION_TIMEOUT_MINUTES", "1440"))
-    SESSION_COOKIE_NAME: str = os.getenv("SESSION_COOKIE_NAME", "bee_session")
+    AUTH_SESSION_COOKIE_NAME: str = os.getenv(
+        "AUTH_SESSION_COOKIE_NAME",
+        os.getenv("SESSION_COOKIE_NAME", "bee_session"),
+    )
+    FLASK_SESSION_COOKIE_NAME: str = os.getenv(
+        "FLASK_SESSION_COOKIE_NAME", "flask_session_id")
     SESSION_COOKIE_SAMESITE: str = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
     SESSION_COOKIE_SECURE: bool = os.getenv(
         "SESSION_COOKIE_SECURE", "false").lower() == "true"
-    SESSION_BACKEND: str = os.getenv("SESSION_BACKEND", "memory")
+    SESSION_BACKEND: str = os.getenv("SESSION_BACKEND", "redis")
     CORS_ALLOW_ORIGINS: str = os.getenv(
         "CORS_ALLOW_ORIGINS",
         "http://localhost:3000,http://127.0.0.1:3000,http://0.0.0.0:3000,http://192.168.0.122:3000",
@@ -52,6 +57,7 @@ class TestingConfig(BaseConfig):
     ENV_NAME = "testing"
     TESTING = True
     WTF_CSRF_ENABLED = False
+    SESSION_BACKEND = "memory"
 
 
 class ProductionConfig(BaseConfig):

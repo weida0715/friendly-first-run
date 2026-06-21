@@ -27,6 +27,33 @@ def test_validate_success_payload() -> None:
     assert result.errors == {}
 
 
+def test_validate_indicator_output_scalers() -> None:
+    payload = _valid_payload()
+    payload["indicators"]["output_scalers"] = {"rsi": {"rsi": "standardization"}}
+
+    result = BlueprintValidator.validate(payload)
+
+    assert result.ok is True
+    assert result.errors == {}
+
+
+def test_validate_new_custom_indicators() -> None:
+    payload = _valid_payload()
+    payload["indicators"]["selected"] = [
+        "rolling_volatility",
+        "wilder_rsi",
+        "price_range_position",
+        "trend_strength",
+        "time_features",
+        "sma_crossover",
+    ]
+
+    result = BlueprintValidator.validate(payload)
+
+    assert result.ok is True
+    assert result.errors == {}
+
+
 def test_validate_missing_name() -> None:
     payload = _valid_payload()
     payload["metadata"]["name"] = " "

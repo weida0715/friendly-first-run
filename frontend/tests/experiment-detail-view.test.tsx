@@ -17,6 +17,7 @@ jest.mock('@/lib/api/client', () => ({
         total_return_net_pct: isClusterPair ? 18.1 : Number((30 - index * 0.5).toFixed(1)),
         total_return_gross_pct: isClusterPair ? 20.4 : Number((35 - index * 0.4).toFixed(1)),
         sharpe_per_bar: isClusterPair ? 1.12 : Number((1.8 - index * 0.02).toFixed(2)),
+        sharpe_annualized: isClusterPair ? 11.2 : Number((18.4 - index * 0.2).toFixed(1)),
         trades_count: isClusterPair ? (index === 1 ? 220 : 180) : 100 + index * 5,
         trade_expectancy_pct: isClusterPair ? (index === 1 ? 0.21 : 0.19) : Number((0.5 - index * 0.01).toFixed(2)),
         trade_win_rate_pct: isClusterPair ? (index === 1 ? 54.1 : 53.2) : Number((60 - index * 0.3).toFixed(1)),
@@ -104,6 +105,7 @@ describe('ExperimentDetailView', () => {
     expect(within(dialog).getByText('Performance')).toBeInTheDocument();
     expect(within(dialog).getByText('#21')).toBeInTheDocument();
     expect(within(dialog).getByText('Net return')).toBeInTheDocument();
+    expect(within(dialog).getByText('Sharpe annualized')).toBeInTheDocument();
     expect(within(dialog).getByText('Parameters')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Close model detail modal' }));

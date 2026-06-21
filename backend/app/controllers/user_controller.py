@@ -5,10 +5,12 @@ from __future__ import annotations
 from flask import Blueprint, current_app, request
 from datetime import datetime, timezone
 import re
+from typing import Any
 
 from app.domain.models.user import User
 from app.repositories.unit_of_work import UnitOfWork
 from app.responses import error_response, ok_response
+from app.controllers.system_controller import SystemController
 from app.services.access_control_service import AccessControlService
 from app.services.password_service import hash_password
 from app.services.session_service import SessionService
@@ -25,9 +27,15 @@ class UserController:
         timeout_minutes = int(current_app.config.get(
             "SESSION_TIMEOUT_MINUTES", 1440))
         cookie_name = str(current_app.config.get(
-            "SESSION_COOKIE_NAME", "bee_session"))
+            "AUTH_SESSION_COOKIE_NAME", "bee_session"))
+        session_backend = str(current_app.config.get("SESSION_BACKEND", "memory"))
+        redis_url = current_app.config.get("REDIS_URL")
         return AccessControlService(
-            session_service=SessionService(timeout_minutes=timeout_minutes),
+            session_service=SessionService(
+                timeout_minutes=timeout_minutes,
+                backend=session_backend,
+                redis_url=redis_url if isinstance(redis_url, str) and redis_url else None,
+            ),
             cookie_name=cookie_name,
         )
 
@@ -41,6 +49,24 @@ class UserController:
             "role": user.role,
             "status": user.status,
         }
+
+    @staticmethod
+    def _serialize_user_audit(user, *, actor_username: str = "system") -> list[dict[str, Any]]:
+        actor = actor_username or "system"
+        audit: list[dict[str, Any]] = [{
+            "action": "User created",
+            "actor": actor,
+            "timestamp": user.created_at.isoformat(),
+            "details": f"Account created with role {user.role} and status {user.status}",
+        }]
+        if user.updated_at and user.updated_at != user.created_at:
+            audit.append({
+                "action": "User updated",
+                "actor": actor,
+                "timestamp": user.updated_at.isoformat(),
+                "details": f"Latest persisted update reflects role {user.role} and status {user.status}",
+            })
+        return sorted(audit, key=lambda item: item["timestamp"], reverse=True)
 
     USERNAME_PATTERN = re.compile(r"^[a-z0-9]+$")
     MIN_USERNAME_LENGTH = 3
@@ -158,6 +184,28 @@ def profile(user_id: int):
     return ok_response({"data": {"user": UserController._serialize_user_summary(user)}})
 
 
+@blueprint.get("/<int:user_id>/audit")
+def user_audit(user_id: int):
+    access = UserController._build_access_control_service()
+    auth = access.require_authenticated(request)
+    if not hasattr(auth, "user_id"):
+        return auth
+    if not access.is_staff(auth):
+        return access.forbidden_response("Staff access required")
+
+    with UnitOfWork() as uow:
+        user = uow.users.get_by_id(user_id)
+
+    if user is None:
+        return error_response("User not found", 404, code="USER_NOT_FOUND")
+
+    return ok_response({
+        "data": {
+            "items": UserController._serialize_user_audit(user),
+        }
+    })
+
+
 @blueprint.post("")
 @blueprint.post("/")
 def create_user():
@@ -202,6 +250,7 @@ def create_user():
             created_at=now,
             updated_at=now,
         ))
+        SystemController.record_event(scope="user", action="User created", actor=auth, target_type="User", target_id=str(created.user_id), message=f"Created user {created.username}")
 
     return ok_response({"data": {"user": UserController._serialize_user_summary(created)}}, status_code=201)
 
@@ -231,6 +280,7 @@ def update_user_status(user_id: int):
         if not access.can_manage_user(auth, target):
             return access.forbidden_response("You cannot manage this user")
         updated = uow.users.update_status(user_id, status)
+        SystemController.record_event(scope="user", action="User status updated", actor=auth, target_type="User", target_id=str(user_id), message=f"Set {target.username} to {status}")
 
     return ok_response({"data": {"user": UserController._serialize_user_summary(updated)}})
 
@@ -261,6 +311,7 @@ def reset_user_password(user_id: int):
             return access.forbidden_response("You cannot manage this user")
         updated = uow.users.update_password_hash(
             user_id, hash_password(new_password))
+        SystemController.record_event(scope="user", action="User password reset", actor=auth, target_type="User", target_id=str(user_id), message=f"Password reset for {target.username}")
 
     return ok_response({"data": {"user": UserController._serialize_user_summary(updated)}})
 
@@ -284,6 +335,7 @@ def update_user_role(user_id: int):
         if target is None:
             return error_response("User not found", 404, code="USER_NOT_FOUND")
         updated = uow.users.update_role(user_id, role)
+        SystemController.record_event(scope="user", action="User role updated", actor=auth, target_type="User", target_id=str(user_id), message=f"Role changed to {role} for {target.username}")
 
     return ok_response({"data": {"user": UserController._serialize_user_summary(updated)}})
 
@@ -302,5 +354,6 @@ def delete_user(user_id: int):
         if target is None:
             return error_response("User not found", 404, code="USER_NOT_FOUND")
         uow.users.delete_by_id(user_id)
+        SystemController.record_event(scope="user", action="User deleted", actor=auth, target_type="User", target_id=str(user_id), message=f"Deleted user {target.username}")
 
     return ok_response({"data": {"deleted": True, "userId": user_id}})

@@ -44,7 +44,7 @@ class RidgeClassifierArchitecture(ArchitectureStrategy):
             self.model = DummyClassifier(strategy="most_frequent")
         else:
             self.model = RidgeClassifier(alpha=float(params["alpha"]), fit_intercept=_as_bool(params.get(
-                "fit_intercept", True)), class_weight=params.get("class_weight"), tol=float(params.get("tol", 0.0001)))
+                "fit_intercept", True)), class_weight=_normalize_class_weight(params.get("class_weight")), tol=float(params.get("tol", 0.0001)))
         self.model.fit(x, y)
         self.calibrated_model = None
         cv = int(params.get("calibrator_cv", 3))
@@ -82,3 +82,11 @@ def _as_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).lower() in {"1", "true", "yes", "on"}
+
+
+def _normalize_class_weight(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip().lower() in {"null", "none"}:
+        return None
+    return value

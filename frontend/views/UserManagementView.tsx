@@ -19,8 +19,11 @@ import {
   ApiClientError,
   createManagedUser,
   deleteManagedUser,
+  getUserAuditTrail,
   listUsers,
+  getPublicProfile,
   resetManagedUserPassword,
+  type UserAuditItem,
   type UserListItem,
   updateManagedUserRole,
   updateManagedUserStatus,
@@ -63,6 +66,11 @@ export function UserManagementView() {
   const [resetPassword, setResetPassword] = useState('');
   const [roleTarget, setRoleTarget] = useState<UserListItem | null>(null);
   const [roleValue, setRoleValue] = useState<Role>('User');
+  const [auditTarget, setAuditTarget] = useState<UserListItem | null>(null);
+  const [auditItems, setAuditItems] = useState<UserAuditItem[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [auditSummary, setAuditSummary] = useState<{ experiments: number; models: number; blueprints: number; loginStatus: string } | null>(null);
 
   const canManageTarget = (target: UserListItem) => {
     const targetRole = normalizeRole(target.role);
@@ -90,6 +98,41 @@ export function UserManagementView() {
       void reload();
     }
   }, [isStaff]);
+
+  useEffect(() => {
+    if (!auditTarget) {
+      setAuditItems([]);
+      setAuditSummary(null);
+      return;
+    }
+
+    let cancelled = false;
+    setAuditLoading(true);
+    setAuditError(null);
+    void Promise.all([getUserAuditTrail(auditTarget.id), getPublicProfile(auditTarget.id)])
+      .then(([auditRes, profileRes]) => {
+        if (cancelled) return;
+        setAuditItems(auditRes.data?.items ?? []);
+        setAuditSummary({
+          experiments: profileRes.data?.experiments?.length ?? 0,
+          models: profileRes.data?.models?.length ?? 0,
+          blueprints: profileRes.data?.blueprints?.length ?? 0,
+          loginStatus: String(profileRes.data?.user?.status ?? auditTarget.status ?? 'Unknown'),
+        });
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        const message = e instanceof ApiClientError ? e.message : 'Failed to load audit trail';
+        setAuditError(message);
+      })
+      .finally(() => {
+        if (!cancelled) setAuditLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [auditTarget]);
 
   const filtered = useMemo(() => items, [items]);
   const totalUsers = items.length;
@@ -248,6 +291,11 @@ export function UserManagementView() {
                       <td className="py-2 pr-2"><UserStatusBadge status={u.status} /></td>
                       <td className="py-2">
                         <div className="flex flex-wrap gap-2">
+                          {isStaff ? (
+                            <Button size="sm" variant="outline" onClick={() => setAuditTarget(u)}>
+                              Audit
+                            </Button>
+                          ) : null}
                           {canManage ? (
                             <Button
                               size="sm"
@@ -365,14 +413,60 @@ export function UserManagementView() {
         </ConfirmDialogCard>
       ) : null}
 
-      <Card className="mt-4 bg-gradient-card">
-        <CardHeader>
-          <CardTitle>Audit Trail</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          TODO: connect UserController audit endpoint for user action history.
-        </CardContent>
-      </Card>
+      {auditTarget ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+          onClick={() => setAuditTarget(null)}
+          role="presentation"
+        >
+          <Card
+            className="max-h-[85vh] w-full max-w-4xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <CardHeader className="flex flex-row items-start justify-between gap-4">
+              <div>
+                <CardTitle>Audit Trail: {auditTarget.username}</CardTitle>
+                <p className="text-sm text-muted-foreground">User history, login status, and related activity snapshot.</p>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" asChild>
+                  <a href={`/profile?userId=${auditTarget.id}`}>Open User Page</a>
+                </Button>
+                <Button variant="outline" onClick={() => setAuditTarget(null)}>Close</Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4 overflow-y-auto text-sm">
+              {auditSummary ? (
+                <div className="grid gap-3 sm:grid-cols-4">
+                  <Card className="bg-muted/30"><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Login Status</p><p className="font-medium">{auditSummary.loginStatus}</p></CardContent></Card>
+                  <Card className="bg-muted/30"><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Experiments</p><p className="font-medium">{auditSummary.experiments}</p></CardContent></Card>
+                  <Card className="bg-muted/30"><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Models</p><p className="font-medium">{auditSummary.models}</p></CardContent></Card>
+                  <Card className="bg-muted/30"><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Blueprints</p><p className="font-medium">{auditSummary.blueprints}</p></CardContent></Card>
+                </div>
+              ) : null}
+              {auditLoading ? <LoadingState message="Loading audit trail..." /> : null}
+              {auditError ? <ErrorState message={auditError} /> : null}
+              {!auditLoading && !auditError && auditItems.length === 0 ? (
+                <p className="text-muted-foreground">No audit events available for this user.</p>
+              ) : null}
+              {!auditLoading && !auditError && auditItems.length > 0 ? (
+                <div className="space-y-3">
+                  {auditItems.map((item) => (
+                    <div key={`${item.timestamp}-${item.action}`} className="rounded-md border p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <strong>{item.action}</strong>
+                        <span className="text-xs text-muted-foreground">{new Date(item.timestamp).toLocaleString()}</span>
+                      </div>
+                      <p className="mt-1 text-muted-foreground">By {item.actor}</p>
+                      <p className="mt-1">{item.details}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
     </BaseView>
   );
 }

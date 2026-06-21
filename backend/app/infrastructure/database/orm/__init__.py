@@ -7,6 +7,7 @@ from app.infrastructure.database.orm.experiment_orm import ExperimentORM
 from app.infrastructure.database.orm.favorite_blueprint_orm import FavoriteBlueprintORM
 from app.infrastructure.database.orm.favorite_model_orm import FavoriteModelORM
 from app.infrastructure.database.orm.model_orm import ModelORM
+from app.infrastructure.database.orm.system_event_orm import SystemEventORM
 from app.infrastructure.database.orm.system_setting_orm import SystemSettingORM
 from app.infrastructure.database.orm.user_orm import UserORM
 
@@ -18,6 +19,7 @@ __all__ = [
     "FavoriteBlueprintORM",
     "FavoriteModelORM",
     "ModelORM",
+    "SystemEventORM",
     "SystemSettingORM",
     "UserORM",
 ]

@@ -63,6 +63,8 @@ class ExperimentCompiler:
         indicators = {}
         indicator_params = bp_snapshot["indicators"].get("parameters") or {}
         indicator_constraints = bp_snapshot["indicators"].get("parameter_constraints") or {}
+        indicator_output_scalers = bp_snapshot["indicators"].get("output_scalers") or {}
+        indicator_output_scaler_overrides = (overrides.get("indicator_output_scalers") or {})
         for name, params in indicator_params.items():
             indicators[name] = cls._compile_section(
                 f"indicators.{name}",
@@ -121,6 +123,10 @@ class ExperimentCompiler:
             "max_permutation_count": max_count,
             "requested_permutation_count": requested,
             "effective_parameters": {"architecture": architecture, "indicators": indicators, "target": target, "split": split},
+            "indicator_output_scalers": {
+                name: {**copy.deepcopy(indicator_output_scalers.get(name, {})), **copy.deepcopy(indicator_output_scaler_overrides.get(name, {}))}
+                for name in indicator_params
+            },
             "selected_parameter_hashes": [item["parameter_hash"] for item in selected],
         }
         return CompiledExperimentPlan(bp_snapshot, compiled_experiment, selected, max_count, requested)
@@ -161,6 +167,8 @@ class ExperimentCompiler:
         text = value.strip()
         if not text:
             return value
+        if text.lower() in {"null", "none"}:
+            return None
         if text.startswith('['):
             try:
                 return json.loads(text)
@@ -175,7 +183,7 @@ class ExperimentCompiler:
         try:
             number = float(text)
         except ValueError:
-            return value
+            return text
         return int(number) if number.is_integer() else number
 
     @staticmethod
@@ -184,11 +192,14 @@ class ExperimentCompiler:
             return
         values = value if isinstance(value, list) else [value]
         for candidate in values:
-            if "allowed_values" in rule and candidate not in rule["allowed_values"]:
+            normalized_candidate = candidate.strip() if isinstance(candidate, str) else candidate
+            if isinstance(normalized_candidate, str) and normalized_candidate.lower() in {"none", "null"}:
+                normalized_candidate = None
+            if "allowed_values" in rule and normalized_candidate not in rule["allowed_values"]:
                 errors.setdefault(f"{path}.{key}", []).append("Value is not allowed.")
             if rule.get("type") in {"number", "integer"}:
                 try:
-                    number = float(candidate)
+                    number = float(normalized_candidate)
                 except (TypeError, ValueError):
                     errors.setdefault(f"{path}.{key}", []).append("Value must be numeric.")
                     continue

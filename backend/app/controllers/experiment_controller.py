@@ -105,6 +105,25 @@ def _reconcile_experiment_state(experiment_id: int, item: ExperimentORM) -> Expe
     return item
 
 
+def _refresh_stale_experiment_job(
+    *,
+    queue_service,
+    metadata_service,
+    experiment_id: int,
+    item: ExperimentORM,
+) -> tuple[ExperimentORM, dict | None]:
+    """Return the live queue job when available, otherwise reconcile stale queued rows."""
+
+    queue_job = _find_experiment_queue_job(
+        queue_service=queue_service,
+        metadata_service=metadata_service,
+        experiment_id=experiment_id,
+    )
+    if queue_job is not None:
+        return item, queue_job
+    return _reconcile_experiment_state(experiment_id, item), None
+
+
 def _parse_current_permutation_stage(current_stage: object) -> dict[str, int | str] | None:
     """Extract current permutation progress from executor stage text."""
 
@@ -256,10 +275,7 @@ def create_experiment():
 
             runtime_settings = get_runtime_settings()
             max_requested = runtime_settings["max_requested_permutations"]
-            if compiled_plan.requested_permutation_count > max_requested:
-                return validation_error_response({
-                    "requestedPermutationCount": [f"Requested permutations must be <= {max_requested}. Ask an admin to raise the system limit if needed."]
-                }, status_code=422)
+            requested_permutation_count = min(compiled_plan.requested_permutation_count, max_requested)
 
             experiment = Experiment(
                 experiment_id=None,
@@ -289,7 +305,7 @@ def create_experiment():
                 deterministic=compiled_plan.compiled_experiment_snapshot["deterministic"],
                 seed=compiled_plan.compiled_experiment_snapshot["seed"],
                 max_permutation_count=compiled_plan.max_permutation_count,
-                requested_permutation_count=compiled_plan.requested_permutation_count,
+                requested_permutation_count=requested_permutation_count,
             )
             created = uow.experiments.add(experiment)
             experiment_id = int(created.experiment_id or 0)
@@ -300,7 +316,7 @@ def create_experiment():
                     CreatedAt=datetime.now(timezone.utc),
                     ParameterHash=parameter_hash,
                 )
-                for permutation in compiled_plan.permutations
+                for permutation in compiled_plan.permutations[:requested_permutation_count]
                 if (parameter_hash := permutation.get("parameter_hash"))
             ]
             if models_to_add:
@@ -370,10 +386,26 @@ def index():
 
     status = request.args.get("status") or None
     search = request.args.get("search") or None
+    queue_service = _build_queue_service()
+    metadata_service = _build_job_metadata_service()
 
     with UnitOfWork() as uow:
         items = uow.experiments.list_by_user_filtered(
             actor.user_id, status=status, search=search)
+        normalized_items = []
+        for item in items:
+            status_key = str(item.status or "").lower()
+            if status_key in {"queued", "running"}:
+                try:
+                    item, _ = _refresh_stale_experiment_job(
+                        queue_service=queue_service,
+                        metadata_service=metadata_service,
+                        experiment_id=int(item.experiment_id or 0),
+                        item=item,
+                    )
+                except QueueUnavailableError:
+                    pass
+            normalized_items.append(item)
 
     return ok_response(
         {
@@ -395,7 +427,7 @@ def index():
                         "completedAt": item.completed_at.isoformat() if item.completed_at else None,
                         "detailPath": f"/experiments/{item.experiment_id}",
                     }
-                    for item in items
+                    for item in normalized_items
                 ]
             }
         }
@@ -620,16 +652,16 @@ def get_experiment_detail(experiment_id: int):
 
     if status_key in {"queued", "running"}:
         try:
-            queue_job = _find_experiment_queue_job(
+            item, queue_job = _refresh_stale_experiment_job(
                 queue_service=queue_service,
                 metadata_service=metadata_service,
                 experiment_id=experiment_id,
+                item=item,
             )
             queue_state = str((queue_job or {}).get("state") or "").lower()
             can_cancel_queued = queue_state == "queued"
             can_cancel_running = queue_state in {"running", "", "unknown"}
             if not queue_job:
-                item = _reconcile_experiment_state(experiment_id, item)
                 status_key = "failed"
                 display_status = "Failed"
                 can_cancel_queued = False
@@ -689,7 +721,7 @@ def get_experiment_detail(experiment_id: int):
                     "target": target,
                     "readableBlueprint": {"name": compiled_blueprint.get("name") or (blueprint.name if blueprint else None), "version": compiled_blueprint.get("version") or (blueprint.version if blueprint else None), "approvalState": compiled_blueprint.get("approval_state")},
                     "readableArchitecture": {"name": architecture.get("display_name") or architecture.get("name"), "parameters": architecture.get("parameters") or {}},
-                    "readableIndicators": {"selected": indicators.get("selected") if isinstance(indicators, dict) else [], "parameters": indicators.get("parameters") if isinstance(indicators, dict) else {}},
+                    "readableIndicators": {"selected": indicators.get("selected") if isinstance(indicators, dict) else [], "parameters": indicators.get("parameters") if isinstance(indicators, dict) else {}, "outputScalers": indicators.get("output_scalers") if isinstance(indicators, dict) else {}},
                     "readableTarget": target,
                     "split": {"strategy": resolved_split_strategy, "boundaries": (item.compiled_experiment_snapshot or {}).get("split_boundaries") or {}, "ratios": {"train": float(item.train_split), "val": float(item.val_split), "test": float(item.test_split)}},
                     "timeline": [],

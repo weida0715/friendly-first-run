@@ -48,6 +48,19 @@ def test_indicator_and_target_metadata_expose_constraints():
     assert indicator["parameter_constraints"]["output"]["default"] == "vwap"
     assert target["parameter_constraints"]["lookahead_period"]["min"] == 1
     assert target["output_column"] == "target"
+    quantile_target = TargetStrategyFactory.metadata("quantile_flag")
+    assert quantile_target["parameter_constraints"]["q"]["max"] == 1.0
+    assert quantile_target["default_values"]["lookahead_period"] == 1
+    candle_target = TargetStrategyFactory.metadata("candle_direction")
+    assert candle_target["parameter_constraints"]["lookahead_period"]["min"] == 1
+    assert candle_target["binary_label_rule"].startswith("1 when close[t+lookahead]")
+    triple_barrier = TargetStrategyFactory.metadata("triple_barrier")
+    assert triple_barrier["default_values"]["take_profit"] == 0.006
+    assert triple_barrier["parameter_constraints"]["stop_loss"]["min"] == 0.0
+    cost_adjusted = TargetStrategyFactory.metadata("cost_adjusted_forward_return")
+    assert cost_adjusted["parameter_constraints"]["cost_bps"]["min"] == 0.0
+    mfe_mae = TargetStrategyFactory.metadata("mfe_mae_trade_quality")
+    assert mfe_mae["default_values"]["min_edge"] == 0.0
 
 
 def test_prediction_output_contracts():
@@ -110,6 +123,21 @@ def test_real_architecture_predictions_can_create_backtest_trades():
         "x": [1.0] * len(predictions["_preds"]),
     })
     assert confusion["pred_pos_count"] > 0
+
+
+def test_ridge_classifier_treats_null_class_weight_as_none():
+    train = pl.DataFrame({
+        "timestamp": list(range(12)),
+        "close": [float(i) for i in range(12)],
+        "feature": [float(i % 3) for i in range(12)],
+        "target": [0, 1] * 6,
+    }).lazy()
+
+    ridge = ArchitectureFactory.create("ridge_classifier_arc")
+    ridge.train(train, class_weight="null")
+    predictions = ridge.predict(train)
+
+    assert len(predictions["_preds"]) == 12
 
 
 def test_blueprint_factory_normalizes_without_target_strategy():

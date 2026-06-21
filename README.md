@@ -431,7 +431,7 @@ Important variables:
 - `REDIS_URL`
 - `BINANCE_BASE_URL`
 - `SESSION_TIMEOUT_MINUTES`
-- `SESSION_BACKEND` (`memory` for current temporary mode)
+- `SESSION_BACKEND` (`redis` for the normal local/dev setup; `memory` only for single-worker/test-only fallback)
 - `NEXT_PUBLIC_API_BASE_URL`
 - `BACKEND_API_ORIGIN`
 - `CORS_ALLOW_ORIGINS` (CSV list, defaults include localhost:3000/127.0.0.1:3000)

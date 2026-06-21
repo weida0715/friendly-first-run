@@ -134,3 +134,168 @@ def test_admin_can_view_and_update_system_settings() -> None:
     assert update.status_code == 200
     assert update.get_json()[
         "data"]["settings"]["queue_job_timeout_seconds"] == 9000
+
+
+def test_admin_can_view_system_events() -> None:
+    from app.controllers import system_controller as module
+    from app.repositories.unit_of_work import UnitOfWork
+    from app.domain.models.system_event import SystemEvent
+    from app.domain.models.user import User
+    from datetime import datetime, timezone
+
+    class _Actor:
+        user_id = 1
+        username = "admin"
+        role = "Admin"
+
+    class _FakeAccessControl:
+        def require_authenticated(self, request):
+            return _Actor()
+
+        def forbidden_response(self, message):
+            raise AssertionError(message)
+
+    client = _client()
+    with UnitOfWork() as uow:
+        uow.users.add(User(
+            user_id=1,
+            username="adminevents",
+            email="adminevents@example.com",
+            password_hash="hash",
+            name="Admin",
+            role="Admin",
+            status="Enabled",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        ))
+        uow.system_events.add(SystemEvent(
+            system_event_id=None,
+            scope="system",
+            action="User logged in",
+            actor_id=1,
+            actor_username="admin",
+            target_type="Session",
+            target_id="sess-1",
+            message="admin logged in",
+            created_at=datetime.now(timezone.utc),
+        ))
+
+    module.build_access_control = lambda: _FakeAccessControl()
+
+    response = client.get("/api/system/events?limit=10")
+    assert response.status_code == 200
+    items = response.get_json()["data"]["items"]
+    assert len(items) == 1
+    assert items[0]["action"] == "User logged in"
+
+
+def test_api_requests_emit_persisted_system_trace() -> None:
+    from app.controllers import system_controller as module
+    from app.repositories.unit_of_work import UnitOfWork
+    from app.domain.models.user import User
+    from datetime import datetime, timezone
+
+    client = _client()
+    with UnitOfWork() as uow:
+        uow.users.add(User(
+            user_id=None,
+            username="traceuser",
+            email="traceuser@example.com",
+            password_hash="hash",
+            name="Trace User",
+            role="Admin",
+            status="Enabled",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        ))
+
+    client.post("/api/auth/login", json={"email": "traceuser@example.com", "password": "wrong"})
+
+    with UnitOfWork() as uow:
+        events = uow.system_events.list_recent(limit=20) if uow.system_events else []
+    assert any("api/auth/login" in event.action or "api/auth/login" in event.message for event in events)
+
+
+def test_system_events_default_to_global_feed() -> None:
+    from app.repositories.unit_of_work import UnitOfWork
+    from app.domain.models.system_event import SystemEvent
+    from datetime import datetime, timezone
+
+    client = _client()
+    with UnitOfWork() as uow:
+        uow.system_events.add(SystemEvent(
+            system_event_id=None,
+            scope="auth",
+            action="User logged in",
+            actor_id=1,
+            actor_username="admin",
+            target_type="Session",
+            target_id="sess-1",
+            message="admin logged in",
+            created_at=datetime.now(timezone.utc),
+        ))
+        uow.system_events.add(SystemEvent(
+            system_event_id=None,
+            scope="user",
+            action="User created",
+            actor_id=1,
+            actor_username="admin",
+            target_type="User",
+            target_id="2",
+            message="created alice",
+            created_at=datetime.now(timezone.utc),
+        ))
+
+    from app.controllers import system_controller as module
+    class _Actor:
+        user_id = 1
+        role = "Admin"
+    class _FakeAccessControl:
+        def require_authenticated(self, request):
+            return _Actor()
+        def forbidden_response(self, message):
+            raise AssertionError(message)
+    module.build_access_control = lambda: _FakeAccessControl()
+
+    response = client.get("/api/system/events?limit=10")
+    assert response.status_code == 200
+    items = response.get_json()["data"]["items"]
+    assert {item["scope"] for item in items} == {"auth", "user"}
+
+
+def test_admin_can_download_system_events() -> None:
+    from app.controllers import system_controller as module
+    from app.repositories.unit_of_work import UnitOfWork
+    from app.domain.models.system_event import SystemEvent
+    from datetime import datetime, timezone
+
+    class _Actor:
+        user_id = 1
+        role = "Admin"
+
+    class _FakeAccessControl:
+        def require_authenticated(self, request):
+            return _Actor()
+
+        def forbidden_response(self, message):
+            raise AssertionError(message)
+
+    client = _client()
+    with UnitOfWork() as uow:
+        uow.system_events.add(SystemEvent(
+            system_event_id=None,
+            scope="auth",
+            action="User logged in",
+            actor_id=1,
+            actor_username="admin",
+            target_type="Session",
+            target_id="sess-1",
+            message="admin logged in",
+            created_at=datetime.now(timezone.utc),
+        ))
+
+    module.build_access_control = lambda: _FakeAccessControl()
+    response = client.get("/api/system/events/download")
+    assert response.status_code == 200
+    assert response.headers["Content-Disposition"].startswith('attachment; filename="system-terminal-log.txt"')
+    assert "User logged in" in response.get_data(as_text=True)

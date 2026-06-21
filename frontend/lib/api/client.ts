@@ -247,6 +247,18 @@ export interface UserProfileResponse {
   data?: { user?: CurrentUser };
 }
 
+export interface UserAuditItem {
+  action: string;
+  actor: string;
+  timestamp: string;
+  details: string;
+}
+
+export interface UserAuditResponse {
+  ok: boolean;
+  data?: { items?: UserAuditItem[] };
+}
+
 export interface CreateManagedUserRequest {
   name: string;
   username: string;
@@ -279,6 +291,10 @@ export function getMyProfile(): Promise<UserProfileResponse> {
 
 export function getUserProfile(userId: string | number): Promise<UserProfileResponse> {
   return apiGet<UserProfileResponse>(API_ENDPOINTS.users.byId(userId));
+}
+
+export function getUserAuditTrail(userId: string | number): Promise<UserAuditResponse> {
+  return apiGet<UserAuditResponse>(API_ENDPOINTS.users.audit(userId));
 }
 
 export function createManagedUser(payload: CreateManagedUserRequest): Promise<UserProfileResponse> {
@@ -440,6 +456,22 @@ export interface PublicProfileResponse {
   };
 }
 
+export interface SystemEventItem {
+  id?: string | number;
+  scope?: string;
+  action?: string;
+  actor?: string;
+  targetType?: string | null;
+  targetId?: string | null;
+  message?: string;
+  createdAt?: string;
+}
+
+export interface SystemEventsResponse {
+  ok: boolean;
+  data?: { items?: SystemEventItem[] };
+}
+
 export function getPublicHub(params: {
   tab?: HubTab;
   q?: string;
@@ -463,6 +495,22 @@ export function getPublicHub(params: {
 
 export function getPublicProfile(userId: string | number): Promise<PublicProfileResponse> {
   return apiGet<PublicProfileResponse>(API_ENDPOINTS.hub.user(userId));
+}
+
+export function getSystemEvents(scope?: string, limit = 50): Promise<SystemEventsResponse> {
+  const query = new URLSearchParams();
+  if (scope) query.set('scope', scope);
+  query.set('limit', String(limit));
+  const suffix = query.toString();
+  return apiGet<SystemEventsResponse>(suffix ? `${API_ENDPOINTS.system.events}?${suffix}` : API_ENDPOINTS.system.events);
+}
+
+export function getSystemEventsDownloadUrl(scope?: string, limit = 100000): string {
+  const query = new URLSearchParams();
+  if (scope) query.set('scope', scope);
+  query.set('limit', String(limit));
+  const suffix = query.toString();
+  return suffix ? `${API_ENDPOINTS.system.eventsDownload}?${suffix}` : API_ENDPOINTS.system.eventsDownload;
 }
 
 export interface DocumentationResponse {
@@ -626,7 +674,7 @@ export interface CreateExperimentRequest {
   val_split: number;
   test_split: number;
   split_strategy?: 'random' | 'time_based_sequential';
-  target_strategy?: 'forward_return' | 'roc_lookahead';
+  target_strategy?: string;
   deterministic?: boolean;
   seed?: number;
   blueprint_id: number;
@@ -877,12 +925,14 @@ export function getBTCUSDTMetadata(): Promise<BTCUSDTMetadataResponse> {
   return apiGet<BTCUSDTMetadataResponse>(API_ENDPOINTS.marketData.btcusdtMetadata);
 }
 
+export type BTCUSDTInterval = '1m' | '5m' | '15m' | '30m' | '1h' | '2h' | '4h' | '1d';
+
 export function getBTCUSDTKlines(params: {
   start?: string;
   end?: string;
   before?: string;
   limit?: number;
-  interval?: '1m';
+  interval?: BTCUSDTInterval;
 }): Promise<BTCUSDTKlineChartResponse> {
   const query = new URLSearchParams();
   if (params.start) query.set('start', params.start);
@@ -894,4 +944,110 @@ export function getBTCUSDTKlines(params: {
   return apiGet<BTCUSDTKlineChartResponse>(
     `${API_ENDPOINTS.marketData.btcusdtKlines}?${query.toString()}`,
   );
+}
+
+export interface BTCUSDTTargetPreviewRequest {
+  interval: BTCUSDTInterval;
+  target_strategy: string;
+  target_params: Record<string, unknown>;
+  start_datetime?: string;
+  end_datetime?: string;
+  candlestick_amount?: number;
+  preview_mode?: 'true_label' | 'mock_prediction';
+  entry_assumption?: 'next_open' | 'current_close';
+  evaluation_cost_bps?: number;
+  mock_precision?: number;
+  mock_recall?: number;
+  mock_seed?: number;
+}
+
+export interface BTCUSDTTargetPreviewRow extends BTCUSDTKlineChartItem {
+  target?: number | null;
+  candleDirection?: number | null;
+  actualDirectionTarget?: number | null;
+}
+
+export interface BTCUSDTTargetPreviewResponse {
+  ok: boolean;
+  data?: {
+    symbol: 'BTCUSDT';
+    interval: BTCUSDTInterval;
+    mode?: {
+      previewMode?: 'true_label' | 'mock_prediction';
+      entryAssumption?: 'next_open' | 'current_close';
+      evaluationCostBps?: number;
+      mockPrecision?: number | null;
+      mockRecall?: number | null;
+      mockSeed?: number | null;
+    };
+    strategy?: {
+      name?: string;
+      binaryLabelRule?: string | null;
+      defaultValues?: Record<string, unknown>;
+      parameters?: Record<string, unknown>;
+    };
+    range?: {
+      start?: string | null;
+      end?: string | null;
+      candles?: number;
+      previewTruncated?: boolean;
+      previewRowLimit?: number;
+    };
+    rows?: BTCUSDTTargetPreviewRow[];
+    summary?: {
+      rowCount?: number;
+      labeledCount?: number;
+      positiveCount?: number;
+      negativeCount?: number;
+      unlabeledCount?: number;
+      positiveRatePct?: number | null;
+      actualPositiveRatePct?: number | null;
+      actualPositiveCount?: number;
+      actualNegativeCount?: number;
+      directionUpCount?: number;
+      directionDownCount?: number;
+      directionFlatCount?: number;
+      warmupNullCount?: number;
+      tailNullCount?: number;
+      lookaheadPeriod?: number | null;
+      confusion?: Record<string, number | null>;
+    };
+    economics?: {
+      horizons?: Array<{
+        horizon?: number;
+        allCount?: number;
+        signalCount?: number;
+        nonSignalCount?: number;
+        allMeanPct?: number | null;
+        signalMeanPct?: number | null;
+        nonSignalMeanPct?: number | null;
+        signalSpreadPct?: number | null;
+        liftPct?: number | null;
+        allMedianPct?: number | null;
+        signalMedianPct?: number | null;
+        allWinRatePct?: number | null;
+        signalWinRatePct?: number | null;
+        allProfitFactor?: number | null;
+        signalProfitFactor?: number | null;
+        positiveRatePct?: number | null;
+      }>;
+    };
+    bridge?: {
+      requestedPrecisionPct?: number | null;
+      requestedRecallPct?: number | null;
+      actualPrecisionPct?: number | null;
+      actualRecallPct?: number | null;
+      signalRatePct?: number | null;
+      falsePositiveRatePct?: number | null;
+      predictedPositiveCount?: number | null;
+      truePositiveCount?: number | null;
+      falsePositiveCount?: number | null;
+      trueNegativeCount?: number | null;
+      falseNegativeCount?: number | null;
+    } | null;
+  };
+}
+
+export function getBTCUSDTTargetPreview(payload: BTCUSDTTargetPreviewRequest): Promise<BTCUSDTTargetPreviewResponse> {
+  return apiPost<BTCUSDTTargetPreviewResponse>(API_ENDPOINTS.marketData.btcusdtTargetPreview, payload);
 }

@@ -3,6 +3,8 @@ import { UserManagementView } from '@/views/UserManagementView';
 
 const listUsersMock = jest.fn();
 const createManagedUserMock = jest.fn();
+const getUserAuditTrailMock = jest.fn();
+const getPublicProfileMock = jest.fn();
 
 jest.mock('@/lib/auth/useAuth', () => ({
   useAuth: jest.fn(),
@@ -18,6 +20,8 @@ jest.mock('@/lib/api/client', () => ({
   },
   listUsers: (...args: unknown[]) => listUsersMock(...args),
   createManagedUser: (...args: unknown[]) => createManagedUserMock(...args),
+  getUserAuditTrail: (...args: unknown[]) => getUserAuditTrailMock(...args),
+  getPublicProfile: (...args: unknown[]) => getPublicProfileMock(...args),
   deleteManagedUser: jest.fn(),
   resetManagedUserPassword: jest.fn(),
   updateManagedUserRole: jest.fn(),
@@ -45,6 +49,8 @@ describe('UserManagementView RBAC UI', () => {
   it('shows error when create user mutation fails', async () => {
     useAuth.mockReturnValue({ user: { role: 'Admin' } });
     listUsersMock.mockResolvedValue({ data: { items: [baseUser] } });
+    getUserAuditTrailMock.mockResolvedValue({ data: { items: [] } });
+    getPublicProfileMock.mockResolvedValue({ data: { user: baseUser, experiments: [], models: [], blueprints: [] } });
     createManagedUserMock.mockRejectedValue(new Error('Create failed'));
 
     render(<UserManagementView />);
@@ -61,6 +67,8 @@ describe('UserManagementView RBAC UI', () => {
   it('hides staff actions for normal user actor', async () => {
     useAuth.mockReturnValue({ user: { role: 'User' } });
     listUsersMock.mockResolvedValue({ data: { items: [baseUser] } });
+    getUserAuditTrailMock.mockResolvedValue({ data: { items: [] } });
+    getPublicProfileMock.mockResolvedValue({ data: { user: baseUser, experiments: [], models: [], blueprints: [] } });
 
     render(<UserManagementView />);
 
@@ -80,6 +88,8 @@ describe('UserManagementView RBAC UI', () => {
         ],
       },
     });
+    getUserAuditTrailMock.mockResolvedValue({ data: { items: [] } });
+    getPublicProfileMock.mockResolvedValue({ data: { user: baseUser, experiments: [], models: [], blueprints: [] } });
 
     render(<UserManagementView />);
 
@@ -93,6 +103,8 @@ describe('UserManagementView RBAC UI', () => {
   it('shows full admin action set', async () => {
     useAuth.mockReturnValue({ user: { role: 'Admin' } });
     listUsersMock.mockResolvedValue({ data: { items: [baseUser] } });
+    getUserAuditTrailMock.mockResolvedValue({ data: { items: [] } });
+    getPublicProfileMock.mockResolvedValue({ data: { user: baseUser, experiments: [], models: [], blueprints: [] } });
 
     render(<UserManagementView />);
 
@@ -110,5 +122,31 @@ describe('UserManagementView RBAC UI', () => {
 
     fireEvent.click(screen.getByText('Apply'));
     await waitFor(() => expect(screen.getByText('Failed to load users')).toBeInTheDocument());
+  });
+
+  it('renders audit trail entries when available', async () => {
+    useAuth.mockReturnValue({ user: { role: 'Admin' } });
+    listUsersMock.mockResolvedValue({ data: { items: [baseUser] } });
+    getUserAuditTrailMock.mockResolvedValue({
+      data: {
+        items: [
+          {
+            action: 'User created',
+            actor: 'system',
+            timestamp: '2026-01-01T00:00:00Z',
+            details: 'Account created with role User and status Enabled',
+          },
+        ],
+      },
+    });
+    getPublicProfileMock.mockResolvedValue({ data: { user: baseUser, experiments: [{ id: 1 }], models: [{ id: 2 }], blueprints: [{ id: 3 }] } });
+
+    render(<UserManagementView />);
+
+    fireEvent.click(await screen.findByText('Audit'));
+
+    expect(await screen.findByText('User created')).toBeInTheDocument();
+    expect(screen.getByText('By system')).toBeInTheDocument();
+    expect(getUserAuditTrailMock).toHaveBeenCalledWith(1);
   });
 });

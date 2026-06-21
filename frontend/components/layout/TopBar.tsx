@@ -3,11 +3,12 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Activity, BookOpen, Globe, Menu, Moon, Palette, Sun } from 'lucide-react';
+import { Activity, BookOpen, ChevronDown, Globe, Menu, Moon, Palette, Shield, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { getSectionNavItems } from '@/lib/routes/nav';
 import { useAuth } from '@/lib/auth/useAuth';
+import { Breadcrumbs } from './Breadcrumbs';
 import { THEMES, useTheme, type Theme } from '@/lib/theme/ThemeProvider';
 
 interface TopBarProps {
@@ -19,7 +20,9 @@ export function TopBar({ onOpenMobileNav }: TopBarProps) {
   const router = useRouter();
   const { isAuthenticated, isLoading, user, logout } = useAuth();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const topNavItems = getSectionNavItems({ isAuthenticated, role: user?.role, section: 'core' });
+  const adminNavItems = getSectionNavItems({ isAuthenticated, role: user?.role, section: 'admin' });
   const publicNavItems = [
     { label: 'Public Hub', href: '/hub', icon: Globe },
     { label: 'Documentation', href: '/docs', icon: BookOpen },
@@ -39,49 +42,95 @@ export function TopBar({ onOpenMobileNav }: TopBarProps) {
 
   return (
     <header className="sticky top-0 z-40 border-b border-border/50 bg-background/55 backdrop-blur-2xl supports-[backdrop-filter]:bg-background/45 surface-hairline">
-      <div className="container flex h-14 min-w-0 items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <Button variant="ghost" size="sm" className="lg:hidden" onClick={onOpenMobileNav}>
-            <Menu className="h-5 w-5" />
-          </Button>
-          <Link href="/landing" className="group flex min-w-0 items-center gap-2 text-sm font-semibold">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-accent text-primary-foreground shadow-[var(--glow-primary)] transition-transform group-hover:scale-105 group-hover:shadow-[var(--glow-accent)]">
-              <Activity className="h-4 w-4" />
-            </span>
-            <span className="truncate bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">BEE</span>
-          </Link>
-          <nav className="hidden items-center gap-3 text-sm text-muted-foreground xl:flex">
-            {(isAuthenticated ? topNavItems : publicNavItems).map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={cn(
-                      'relative rounded-md px-2.5 py-1 transition-colors hover:text-foreground',
-                      isActive(item.href)
-                        ? 'bg-primary/10 text-primary shadow-[inset_0_-2px_0_hsl(var(--primary))]'
-                        : 'text-muted-foreground',
-                    )}
-                  >
-                    {item.label}
-                  </Link>
-                ))}
-          </nav>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          <ThemeSwitcher />
-          {!isLoading && isAuthenticated ? (
-            <>
-              <span className="hidden max-w-[12rem] truncate text-sm text-muted-foreground md:inline">{user?.username}</span>
-              <Button variant="outline" size="sm" onClick={handleLogout} disabled={isLoggingOut}>
-                {isLoggingOut ? 'Signing out...' : 'Sign out'}
-              </Button>
-            </>
-          ) : (
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/login">Sign in</Link>
+      <div className="container flex min-h-14 flex-col gap-1 py-2">
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <Button variant="ghost" size="sm" onClick={onOpenMobileNav} aria-label="Open navigation menu">
+              <Menu className="h-5 w-5" />
             </Button>
-          )}
+            <Link href="/landing" className="group flex min-w-0 items-center gap-2 text-sm font-semibold">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-accent text-primary-foreground shadow-[var(--glow-primary)] transition-transform group-hover:scale-105 group-hover:shadow-[var(--glow-accent)]">
+                <Activity className="h-4 w-4" />
+              </span>
+              <span className="truncate bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">BEE</span>
+            </Link>
+            <nav className="hidden items-center gap-3 text-sm text-muted-foreground xl:flex">
+              {(isAuthenticated ? topNavItems : publicNavItems).map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    'relative rounded-md px-2.5 py-1 transition-colors hover:text-foreground',
+                    isActive(item.href)
+                      ? 'bg-primary/10 text-primary shadow-[inset_0_-2px_0_hsl(var(--primary))]'
+                      : 'text-muted-foreground',
+                  )}
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+            {adminNavItems.length > 0 ? (
+              <div className="relative hidden xl:block">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setAdminMenuOpen((v) => !v)}
+                  aria-label="Open admin menu"
+                  aria-expanded={adminMenuOpen}
+                >
+                  <Shield className="mr-1 h-4 w-4" />
+                  Admin
+                  <ChevronDown className="ml-1 h-4 w-4" />
+                </Button>
+                {adminMenuOpen ? (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Close admin menu"
+                      className="fixed inset-0 z-30 cursor-default"
+                      onClick={() => setAdminMenuOpen(false)}
+                    />
+                    <div className="absolute left-0 top-full z-40 mt-2 w-56 overflow-hidden rounded-xl border border-border/60 bg-popover shadow-xl">
+                      {adminNavItems.map((item) => {
+                        const Icon = item.icon;
+                        return (
+                          <Link
+                            key={item.href}
+                            href={item.href}
+                            onClick={() => setAdminMenuOpen(false)}
+                            className="flex items-center gap-2 px-3 py-2 text-sm text-popover-foreground transition-colors hover:bg-muted/70"
+                          >
+                            <Icon className="h-4 w-4 text-muted-foreground" />
+                            <span>{item.label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
+            <ThemeSwitcher />
+            {!isLoading && isAuthenticated ? (
+              <>
+                <span className="hidden max-w-[12rem] truncate text-sm text-muted-foreground md:inline">{user?.username}</span>
+                <Button variant="outline" size="sm" onClick={handleLogout} disabled={isLoggingOut}>
+                  {isLoggingOut ? 'Signing out...' : 'Sign out'}
+                </Button>
+              </>
+            ) : (
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/login">Sign in</Link>
+              </Button>
+            )}
+          </div>
+        </div>
+        <div className="pl-12">
+          <Breadcrumbs />
         </div>
       </div>
     </header>

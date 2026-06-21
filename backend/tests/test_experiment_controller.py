@@ -45,6 +45,11 @@ class _UnavailableQueueService:
         raise QueueUnavailableError("redis down")
 
 
+class _EmptyQueueService:
+    def get_active_jobs(self):
+        return []
+
+
 def _client():
     configure_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=get_engine())
@@ -196,6 +201,69 @@ def test_create_experiment_persists_and_returns_created_payload() -> None:
         assert persisted.max_permutation_count == 1
         assert len(models) == 1
         assert models[0].parameter_hash
+
+
+def test_create_experiment_clamps_requested_permutations_to_system_limit(monkeypatch) -> None:
+    from app.controllers import experiment_controller as module
+
+    client = _client()
+    module._build_queue_service = lambda: _FakeQueueService()
+    monkeypatch.setattr(module, "get_runtime_settings", lambda: {"max_requested_permutations": 1})
+    client.post("/api/auth/register", json={
+        "name": "owner",
+        "username": "owner010",
+        "email": "owner010@example.com",
+        "password": "securepass",
+    })
+    client.post("/api/auth/login", json={
+        "email": "owner010@example.com",
+        "password": "securepass",
+    })
+
+    with UnitOfWork() as uow:
+        owner = uow.users.get_by_email("owner010@example.com")
+        now = datetime(2026, 1, 1, 12, 0, 0)
+        created_bp = uow.blueprints.add(Blueprint(
+            None,
+            owner.user_id,
+            "BP Approved",
+            None,
+            {},
+            {},
+            {"parameters": {"C": [1, 2]}},
+            "Approved",
+            now,
+            1,
+            None,
+            now,
+            now,
+        ))
+
+    response = client.post("/api/experiments/", json={
+        "name": "Exp Clamped",
+        "description": "Clamp flow",
+        "symbol": "BTCUSDT",
+        "interval": "1m",
+        "start_date": "2026-01-01T00:00:00Z",
+        "end_date": "2026-01-10T00:00:00Z",
+        "train_split": 80,
+        "val_split": 10,
+        "test_split": 10,
+        "blueprint_id": created_bp.blueprint_id,
+        "parameter_overrides": {"window": 20},
+    })
+
+    assert response.status_code == 201
+    payload = response.get_json()
+    assert payload["data"]["experiment"]["requestedPermutationCount"] == 1
+
+    with UnitOfWork() as uow:
+        experiment_id = int(payload["data"]["experiment"]["id"])
+        persisted = uow.experiments.get_by_id(experiment_id)
+        models = uow.models.list_by_experiment(experiment_id)
+        assert persisted is not None
+        assert persisted.requested_permutation_count == 1
+        assert len(models) == 1
 
 
 def test_list_and_detail_endpoints_enforce_ownership() -> None:
@@ -561,6 +629,70 @@ def test_list_normalizes_active_queued_status_to_running() -> None:
     assert len(items) == 1
     assert items[0]["status"] == "Running"
     assert items[0]["currentStage"] == "Permutation 931/6912: training architecture (931/6912)"
+
+
+def test_list_reconciles_queued_experiment_when_queue_job_is_missing() -> None:
+    from app.controllers import experiment_controller as module
+
+    client = _client()
+    module._build_queue_service = lambda: _EmptyQueueService()
+    client.post("/api/auth/register", json={
+        "name": "owner",
+        "username": "owner011",
+        "email": "owner011@example.com",
+        "password": "securepass",
+    })
+    client.post("/api/auth/login", json={
+        "email": "owner011@example.com",
+        "password": "securepass",
+    })
+
+    with UnitOfWork() as uow:
+        owner = uow.users.get_by_email("owner011@example.com")
+        now = datetime(2026, 1, 1, 12, 0, 0)
+        bp = uow.blueprints.add(Blueprint(None, owner.user_id, "BP Approved", None, {}, {}, {}, "Approved", now, 1, None, now, now))
+        experiment = uow.experiments.add(Experiment(
+            experiment_id=None,
+            user_id=owner.user_id,
+            blueprint_id=bp.blueprint_id,
+            name="Stale Queue",
+            description=None,
+            interval="15m",
+            start_date=now.date(),
+            end_date=now.date(),
+            train_split=Decimal("0.80"),
+            val_split=Decimal("0.10"),
+            test_split=Decimal("0.10"),
+            parameter_overrides={},
+            status="Queued",
+            progress=Decimal("0"),
+            current_stage=None,
+            eta_seconds=None,
+            success=None,
+            created_at=now,
+            completed_at=None,
+            start_datetime=now,
+            end_datetime=now,
+            compiled_blueprint_snapshot={},
+            compiled_experiment_snapshot={"max_permutation_count": 10, "requested_permutation_count": 10},
+            deterministic=True,
+            seed=42,
+            max_permutation_count=10,
+            requested_permutation_count=10,
+        ))
+
+    response = client.get("/api/experiments/?status=Queued")
+    assert response.status_code == 200
+    items = response.get_json()["data"]["items"]
+    assert len(items) == 1
+    assert items[0]["status"] == "Failed"
+    assert "worker stopped or job disappeared" in (items[0]["currentStage"] or "")
+
+    with UnitOfWork() as uow:
+        persisted = uow.experiments.get_by_id(experiment.experiment_id)
+        assert persisted is not None
+        assert str(persisted.status) == "Failed"
+        assert persisted.completed_at is not None
 
 
 def test_detail_clamps_completed_count_to_current_training_permutation() -> None:

@@ -7,13 +7,12 @@ import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SidebarNav } from './SidebarNav';
 import { TopBar } from './TopBar';
-import { Breadcrumbs } from './Breadcrumbs';
 import { useAuth } from '@/lib/auth/useAuth';
 import { cn } from '@/lib/utils';
 
 function MobileSidebar({ onClose }: { onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 lg:hidden">
+    <div className="fixed inset-0 z-50">
       <button
         type="button"
         aria-label="Close menu"
@@ -29,7 +28,9 @@ function MobileSidebar({ onClose }: { onClose: () => void }) {
             <X className="h-4 w-4" />
           </Button>
         </div>
-        <SidebarNav mobile />
+        <div className="h-full overflow-y-auto">
+          <SidebarNav mobile />
+        </div>
       </div>
     </div>
   );
@@ -83,13 +84,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className={cn('relative min-h-screen bg-background', isTouch && 'touch-optimizations')}>
       {decor}
       <TopBar onOpenMobileNav={() => setMobileOpen(true)} />
-      <div className="flex min-h-[calc(100vh-3.5rem)]">
-        <SidebarNav />
-        <section className="flex min-w-0 flex-1 flex-col">
-          <Breadcrumbs />
-          <div className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</div>
-        </section>
-      </div>
+      <div className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</div>
       {mobileOpen ? <MobileSidebar onClose={() => setMobileOpen(false)} /> : null}
     </div>
   );

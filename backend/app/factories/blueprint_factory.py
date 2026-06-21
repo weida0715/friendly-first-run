@@ -19,7 +19,16 @@ class BlueprintFactory:
         indicators = payload.get("indicators") or {}
         selected = list(indicators.get("selected") or [])
         indicator_params = indicators.get("parameters") or indicators.get("params") or indicators.get("config") or {}
+        indicator_output_scalers = indicators.get("output_scalers") or {}
         indicator_metadata = {name: IndicatorFactory.metadata(name) for name in selected}
+        normalized_output_scalers: dict[str, dict[str, str]] = {}
+        for name in selected:
+            outputs = indicator_metadata[name]["output_columns"]
+            configured = indicator_output_scalers.get(name) or {}
+            normalized_output_scalers[name] = {
+                str(output): str(configured.get(output) or "none")
+                for output in outputs
+            }
 
         return {
             "architecture": {
@@ -37,6 +46,7 @@ class BlueprintFactory:
                     name: {**indicator_metadata[name]["default_values"], **(indicator_params.get(name) or {})}
                     for name in selected
                 },
+                "output_scalers": normalized_output_scalers,
                 "parameter_constraints": {name: indicator_metadata[name]["parameter_constraints"] for name in selected},
                 "definitions": list(indicator_metadata.values()),
             },

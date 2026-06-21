@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { ConfirmDialogCard } from '@/components/ui/ConfirmDialogCard';
 import { AppShell } from '@/components/layout/AppShell';
+import { ThemeProvider } from '@/lib/theme/ThemeProvider';
 
 function DialogHarness() {
   const [open, setOpen] = useState(false);
@@ -49,8 +50,8 @@ describe('dialog and responsive smoke', () => {
   });
 
   it('app shell uses expected responsive structural classes', () => {
-    const { container } = render(<AppShell><div>Page</div></AppShell>);
-    expect(container.querySelector('.lg\\:hidden')).toBeInTheDocument();
-    expect(container.querySelector('.hidden.lg\\:flex')).toBeInTheDocument();
+    const { container } = render(<ThemeProvider><AppShell><div>Page</div></AppShell></ThemeProvider>);
+    expect(container.querySelector('button[aria-label="Open navigation menu"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-sidebar-nav]')).not.toBeInTheDocument();
   });
 });

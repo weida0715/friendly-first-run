@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, UTC
 import polars as pl
 
 from app.strategies.data_split_strategy import RandomSplitStrategy, TimeBasedSequentialSplitStrategy
-from app.execution.feature_scaler import FeatureScaler
+from app.execution.feature_scaler import FeatureScaler, scale_indicator_outputs
 from app.strategies.indicator_strategy import IndicatorPipelineStrategy, drop_warmup_nulls
 from app.strategies.target_strategy import TargetStrategyFactory
 
@@ -113,3 +113,15 @@ def test_feature_scaler_fits_on_train_only():
     assert scaled.metadata["stats"]["close"]["mean"] == 0.0
     assert train["close"].to_list() == [0.0] * train.height
     assert all(value > 50 for value in validation["close"].to_list())
+
+
+def test_indicator_output_scaler_applies_log_transform():
+    frame = pl.DataFrame({
+        "timestamp": [datetime(2026, 1, 1, tzinfo=UTC) + timedelta(minutes=i) for i in range(3)],
+        "signal": [0.0, 1.0, 3.0],
+    }).lazy()
+
+    scaled = scale_indicator_outputs(frame, {"signal": "log_transform"}).collect()
+
+    assert scaled["signal"].to_list()[0] == 0.0
+    assert scaled["signal"].to_list()[1] > 0.0

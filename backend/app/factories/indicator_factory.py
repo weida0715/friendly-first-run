@@ -6,7 +6,13 @@ from typing import Any
 
 from app.strategies.indicators.custom_indicator_strategy import CustomIndicatorFactory
 from app.strategies.indicators.ichimoku_cloud import IchimokuCloudIndicator
+from app.strategies.indicators.price_range_position import PriceRangePositionIndicator
 from app.strategies.indicators.quantile_flag import QuantileFlagIndicator
+from app.strategies.indicators.rolling_volatility import RollingVolatilityIndicator
+from app.strategies.indicators.sma_crossover import SMACrossoverIndicator
+from app.strategies.indicators.time_features import TimeFeaturesIndicator
+from app.strategies.indicators.trend_strength import TrendStrengthIndicator
+from app.strategies.indicators.wilder_rsi import WilderRSIIndicator
 from app.strategies.indicators.vwap import VWAPIndicator
 from app.factories.talib_registry import TALIB_INDICATOR_REGISTRY, parameter_constraints
 
@@ -16,6 +22,12 @@ class IndicatorFactory:
         "vwap": VWAPIndicator,
         "ichimoku_cloud": IchimokuCloudIndicator,
         "quantile_flag": QuantileFlagIndicator,
+        "rolling_volatility": RollingVolatilityIndicator,
+        "wilder_rsi": WilderRSIIndicator,
+        "price_range_position": PriceRangePositionIndicator,
+        "trend_strength": TrendStrengthIndicator,
+        "time_features": TimeFeaturesIndicator,
+        "sma_crossover": SMACrossoverIndicator,
     }
 
     @classmethod

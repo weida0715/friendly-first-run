@@ -65,6 +65,17 @@ class BlueprintValidator:
             selected = []
         for key, values in IndicatorFactory.validate_selected([str(item) for item in selected]).items():
             errors[key].extend(values)
+        output_scalers = indicators.get("output_scalers")
+        if output_scalers is not None and not isinstance(output_scalers, dict):
+            errors["indicators.output_scalers"].append("Indicator output scalers must be an object.")
+        elif isinstance(output_scalers, dict):
+            for indicator_name, scaler_map in output_scalers.items():
+                if not isinstance(scaler_map, dict):
+                    errors[f"indicators.output_scalers.{indicator_name}"].append("Output scalers must be an object.")
+                    continue
+                for column_name, strategy in scaler_map.items():
+                    if strategy not in {"none", "normalization", "standardization", "log_transform"}:
+                        errors[f"indicators.output_scalers.{indicator_name}.{column_name}"].append("Unsupported scaler strategy.")
 
         parameter_ranges = payload.get("parameter_ranges")
         if parameter_ranges is not None and not isinstance(parameter_ranges, dict):

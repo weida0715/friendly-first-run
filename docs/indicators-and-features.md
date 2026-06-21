@@ -14,6 +14,17 @@ Configured indicators are read from `indicators`. Each item may be a string name
 
 Generated columns are appended to the split frame. If indicator parameters are part of a permutation, features are rebuilt for that permutation from the base split.
 
+## Output column scaling
+
+Indicators can also carry `output_scalers`, keyed by indicator name and output column name. Supported values are `none`, `normalization`, `standardization`, and `log_transform`.
+
+- `none` leaves the generated column unchanged.
+- `normalization` rescales to a 0-1 range.
+- `standardization` applies mean/std scaling.
+- `log_transform` applies a log1p-style transform.
+
+Blueprints store the default scaler choice per output column. Experiments inherit those defaults and can override them per experiment.
+
 ## Input columns
 
 Base market columns are `timestamp`, `open`, `high`, `low`, `close`, and `volume`. TA-Lib metadata maps SQL-style names to TA-Lib input names: `open -> Open`, `high -> High`, `low -> Low`, `close -> Close`, `volume -> Volume`.
@@ -40,6 +51,12 @@ Rolling indicators naturally produce null rows at the beginning of a split. BEE 
 | `vwap` | `high`, `low`, `close`, `volume` | `output` string, default `vwap` | configured output name | Cumulative volume-weighted average price: cumulative typical price times volume divided by cumulative volume. |
 | `ichimoku_cloud` | `high`, `low` | `conversion_period` default 9 min 1; `base_period` default 26 min 1; `span_b_period` default 52 min 1; `displacement` default 26 min 0 | `ichimoku_conversion`, `ichimoku_base`, `ichimoku_span_a`, `ichimoku_span_b` | Ichimoku conversion/base lines and displaced leading spans. Warm-up period is 52. |
 | `quantile_flag` | configurable numeric `column`, default `close` | `column` required default `close`; `window` default 20 min 1; `quantile` default 0.8 range 0.0-1.0; `output` optional | default `<column>_quantile_flag` | Binary Int8 flag set to 1 when the column is greater than or equal to its rolling quantile threshold. |
+| `rolling_volatility` | configurable numeric `column`, default `close` | `column` default `close`; `window` default 12 min 1 | default `<column>_volatility_<window>` | Rolling standard deviation of the selected column. |
+| `wilder_rsi` | `close` | `period` default 14 min 1 | `wilder_rsi_<period>` | Wilder-style RSI using exponential smoothing of gains and losses. |
+| `price_range_position` | `high`, `low`, `close` | `period` default 24 min 1 | `price_range_position` | Close location inside the rolling high-low range. |
+| `trend_strength` | `close` | `fast_period` default 20 min 1; `slow_period` default 50 min 1 | `trend_strength` | Relative gap between fast and slow rolling means. |
+| `time_features` | `timestamp` | none | `hour`, `minute`, `weekday` | Calendar features derived from the timestamp column. |
+| `sma_crossover` | `close` | `short_window` default 10 min 1; `long_window` default 30 min 1; `crossover_bull` default 2; `crossover_bear` default -2 | `crossover`, `signal` | Detects SMA relation flips and emits crossover signals. |
 
 ## TA-Lib parameter rules
 
@@ -99,4 +116,3 @@ String numeric parameters are sanitized to int/float before TA-Lib execution. Li
 | `LINEARREG`, `TSF` | Statistic Functions | `close` | `timeperiod=14` |
 | `STDDEV`, `VAR` | Statistic Functions | `close` | `timeperiod=5`, `nbdev=1` |
 | `CDLDOJI`, `CDLHAMMER`, `CDLENGULFING`, `CDLMORNINGSTAR`, `CDLEVENINGSTAR`, `CDLSHOOTINGSTAR`, `CDLHANGINGMAN` | Pattern Recognition | `open`, `high`, `low`, `close` | Morning/evening star use `penetration=0`; others none |
-

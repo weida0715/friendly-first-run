@@ -79,6 +79,19 @@ def test_create_draft_blueprint_persists_with_defaults() -> None:
         assert created.features == {"indicator_outputs": ["rsi", "macd"]}
 
 
+def test_create_draft_blueprint_with_session_cookie_is_authorized() -> None:
+    client = _client()
+    cookie = _register_and_login(client, username="bpowner2", email="bpowner2@example.com")
+
+    response = client.post(
+        "/api/blueprints/",
+        json=_valid_payload(),
+        headers={"Cookie": cookie},
+    )
+
+    assert response.status_code == 201
+
+
 def test_create_draft_blueprint_validation_errors_are_field_level() -> None:
     client = _client()
     cookie = _register_and_login(client)

@@ -38,11 +38,12 @@ function architectureSummary(architecture: Record<string, unknown>) {
 
 function indicatorSummaries(indicators: Record<string, unknown>) {
   const paramsByName = ((indicators.params ?? indicators.parameters ?? {}) as Record<string, unknown>) || {};
+  const scalersByName = ((indicators.output_scalers ?? indicators.outputScalers ?? {}) as Record<string, Record<string, unknown>>) || {};
   const selected = Array.isArray(indicators.selected) ? indicators.selected.map(String) : [];
   const definitions = Array.isArray(indicators.definitions) ? indicators.definitions as Record<string, unknown>[] : [];
   const names = selected.length > 0 ? selected : definitions.map((item) => String(item.name ?? item.id ?? '')).filter(Boolean);
-  const items = names.length > 0 ? names.map((name) => ({ name, source: definitions.find((item) => String(item.name ?? item.id) === name)?.source, params: paramsByName[name] ?? definitions.find((item) => String(item.name ?? item.id) === name)?.parameters ?? definitions.find((item) => String(item.name ?? item.id) === name)?.params ?? {} })) : Object.entries(indicators).map(([name, params]) => ({ name, source: undefined, params }));
-  return items.map((item) => ({ name: item.name, source: String(item.source ?? 'indicator'), params: scalarEntries(item.params) }));
+  const items = names.length > 0 ? names.map((name) => ({ name, source: definitions.find((item) => String(item.name ?? item.id) === name)?.source, params: paramsByName[name] ?? definitions.find((item) => String(item.name ?? item.id) === name)?.parameters ?? definitions.find((item) => String(item.name ?? item.id) === name)?.params ?? {}, scalers: scalersByName[name] ?? definitions.find((item) => String(item.name ?? item.id) === name)?.outputScalers ?? {} })) : Object.entries(indicators).map(([name, params]) => ({ name, source: undefined, params, scalers: scalersByName[name] ?? {} }));
+  return items.map((item) => ({ name: item.name, source: String(item.source ?? 'indicator'), params: scalarEntries(item.params), scalers: Object.entries(item.scalers ?? {}) }));
 }
 
 type BlueprintDetail = {
@@ -165,8 +166,8 @@ export function BlueprintDetailView() {
             <Card>
               <CardHeader><CardTitle>Indicators</CardTitle></CardHeader>
               <CardContent className="space-y-3">
-                {indicatorSummaries(detail.indicators).map((indicator) => (
-                  <div key={indicator.name} className="rounded-xl border bg-background/70 p-4 shadow-sm">
+                  {indicatorSummaries(detail.indicators).map((indicator) => (
+                    <div key={indicator.name} className="rounded-xl border bg-background/70 p-4 shadow-sm">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <p className="font-mono text-sm font-semibold">{indicator.name}</p>
@@ -179,6 +180,14 @@ export function BlueprintDetailView() {
                         {indicator.params.map(([key, value]) => <div key={key} className="rounded-lg border bg-muted/20 px-3 py-2"><p className="text-[11px] uppercase tracking-wide text-muted-foreground">{key}</p><p className="font-mono text-sm">{String(value)}</p></div>)}
                       </div>
                     ) : <p className="mt-3 rounded-lg border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">No user-configurable parameters.</p>}
+                    <div className="mt-3">
+                      <p className="mb-2 text-[11px] uppercase tracking-wide text-muted-foreground">Output scalers</p>
+                      {indicator.scalers.length > 0 ? (
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {indicator.scalers.map(([key, value]) => <div key={key} className="rounded-lg border bg-muted/20 px-3 py-2"><p className="text-[11px] uppercase tracking-wide text-muted-foreground">{key}</p><p className="font-mono text-sm">{String(value)}</p></div>)}
+                        </div>
+                      ) : <p className="rounded-lg border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">none</p>}
+                    </div>
                   </div>
                 ))}
               </CardContent>

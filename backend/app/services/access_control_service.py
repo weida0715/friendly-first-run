@@ -65,7 +65,7 @@ class AccessControlService:
         with UnitOfWork() as uow:
             user = uow.users.get_by_id(session_record.user_id)
 
-        if user is None or user.Status != "Enabled":
+        if user is None or user.status != "Enabled":
             self._session_service.destroy_server_session(
                 session_record.session_id)
             return None

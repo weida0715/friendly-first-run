@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SidebarNav } from '@/components/layout/SidebarNav';
 import { TopBar } from '@/components/layout/TopBar';
+import { ThemeProvider } from '@/lib/theme/ThemeProvider';
 
 const replaceMock = jest.fn();
 let mockPathname = '/dashboard';
@@ -91,7 +92,7 @@ describe('navigation', () => {
       logout: async () => undefined,
     };
 
-    render(<TopBar onOpenMobileNav={jest.fn()} />);
+    render(<ThemeProvider><TopBar onOpenMobileNav={jest.fn()} /></ThemeProvider>);
     fireEvent.click(screen.getByRole('button', { name: /sign out/i }));
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/login'));
   });
@@ -104,7 +105,7 @@ describe('navigation', () => {
       logout: async () => undefined,
     };
 
-    render(<TopBar onOpenMobileNav={jest.fn()} />);
+    render(<ThemeProvider><TopBar onOpenMobileNav={jest.fn()} /></ThemeProvider>);
 
     expect(screen.getByRole('link', { name: /BEE/i })).toHaveAttribute('href', '/landing');
     expect(screen.getByRole('link', { name: 'Public Hub' })).toHaveAttribute('href', '/hub');
@@ -112,5 +113,21 @@ describe('navigation', () => {
     expect(screen.getByRole('link', { name: /sign in/i })).toHaveAttribute('href', '/login');
     expect(screen.queryByRole('link', { name: /register/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Dashboard' })).not.toBeInTheDocument();
+  });
+
+  it('topbar shows admin dropdown for moderator and admin users', () => {
+    mockAuthState = {
+      isLoading: false,
+      isAuthenticated: true,
+      user: { username: 'mod', role: 'Moderator' },
+      logout: async () => undefined,
+    };
+
+    render(<ThemeProvider><TopBar onOpenMobileNav={jest.fn()} /></ThemeProvider>);
+    expect(screen.getByRole('button', { name: /open admin menu/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Users' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /open admin menu/i }));
+    expect(screen.getByRole('link', { name: 'Users' })).toHaveAttribute('href', '/admin/users');
   });
 });

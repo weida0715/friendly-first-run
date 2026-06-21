@@ -7,6 +7,7 @@ from app.repositories.favorite_blueprint_repository import FavoriteBlueprintRepo
 from app.repositories.favorite_model_repository import FavoriteModelRepository
 from app.repositories.market_data_repository import MarketDataRepository
 from app.repositories.model_repository import ModelRepository
+from app.repositories.system_event_repository import SystemEventRepository
 from app.repositories.user_repository import UserRepository
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "FavoriteModelRepository",
     "MarketDataRepository",
     "ModelRepository",
+    "SystemEventRepository",
     "UserRepository",
 ]

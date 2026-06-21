@@ -18,6 +18,7 @@ from app.repositories.unit_of_work import UnitOfWork
 from app.services.market_data_service import MarketDataService
 from app.strategies.data_split_strategy import DataSplitStrategyFactory, SplitResult
 from app.strategies.indicator_strategy import IndicatorPipelineStrategy, drop_warmup_nulls
+from app.execution.feature_scaler import scale_indicator_outputs
 from app.strategies.logs.confusion_metrics_log_strategy import CONFUSION_FIELDS, ConfusionMetricsLogStrategy
 from app.strategies.scaling_strategy import StandardScalerStrategy
 from app.strategies.target_strategy import TargetStrategyFactory
@@ -123,6 +124,7 @@ class DefaultExperimentExecutor(ExperimentExecutor):
             "test_split": float(split_params.get("test", getattr(experiment, "TestSplit", 0.1) * 100)),
             "split_strategy": split_params.get("strategy") or compiled.get("split_strategy") or overrides.get("split_strategy", "time_based_sequential"),
             "indicators": indicators,
+            "indicator_output_scalers": compiled.get("indicator_output_scalers") or overrides.get("indicator_output_scalers", {}),
             "target_strategy": compiled.get("target_strategy") or overrides.get("target_strategy", "forward_return"),
             "target_params": target_params,
             "feature_columns": overrides.get("feature_columns"),
@@ -250,11 +252,19 @@ class DefaultExperimentExecutor(ExperimentExecutor):
         strategy = IndicatorPipelineStrategy()
         metadata = {**(splits.metadata or {}),
                     "indicators": cfg.get("indicators", [])}
+        output_scalers = {}
+        indicators_cfg = cfg.get("indicators") or []
+        if isinstance(indicators_cfg, list):
+            for indicator in indicators_cfg:
+                if not isinstance(indicator, dict):
+                    continue
+                for column, strategy in (indicator.get("output_scalers") or {}).items():
+                    output_scalers[str(column)] = str(strategy or "none")
         return SplitResult(
-            train_df=drop_warmup_nulls(strategy.apply(splits.train_df, cfg)),
-            validation_df=drop_warmup_nulls(
-                strategy.apply(splits.validation_df, cfg)),
-            test_df=drop_warmup_nulls(strategy.apply(splits.test_df, cfg)),
+            train_df=scale_indicator_outputs(drop_warmup_nulls(strategy.apply(splits.train_df, cfg)), output_scalers),
+            validation_df=scale_indicator_outputs(drop_warmup_nulls(
+                strategy.apply(splits.validation_df, cfg)), output_scalers),
+            test_df=scale_indicator_outputs(drop_warmup_nulls(strategy.apply(splits.test_df, cfg)), output_scalers),
             train_boundary=splits.train_boundary,
             validation_boundary=splits.validation_boundary,
             test_boundary=splits.test_boundary,
@@ -285,7 +295,9 @@ class DefaultExperimentExecutor(ExperimentExecutor):
         )
 
     def scale_features(self, splits: SplitResult, ctx: ExperimentExecutor.ExecutionContext) -> SplitResult:
-        result = StandardScalerStrategy().scale(splits, ctx.config or {})
+        cfg = dict(ctx.config or {})
+        cfg["feature_columns"] = self._feature_columns_without_indicator_outputs(splits, cfg)
+        result = StandardScalerStrategy().scale(splits, cfg)
         return result.splits
 
     def prepare_permutation_splits(
@@ -297,8 +309,9 @@ class DefaultExperimentExecutor(ExperimentExecutor):
         """Rebuild permutation-specific features without crossing split boundaries."""
         cfg = {**(ctx.config or {})}
         if isinstance(params.get("indicators"), dict):
+            indicator_output_scalers = (ctx.config or {}).get("indicator_output_scalers") or {}
             cfg["indicators"] = [
-                {"name": name, "params": indicator_params or {}}
+                {"name": name, "params": indicator_params or {}, "output_scalers": indicator_output_scalers.get(name, {})}
                 for name, indicator_params in params["indicators"].items()
             ]
         if isinstance(params.get("target"), dict):
@@ -321,7 +334,20 @@ class DefaultExperimentExecutor(ExperimentExecutor):
             metadata={**(splits.metadata or {}),
                       "permutation_indicators": cfg.get("indicators", [])},
         )
+        cfg["feature_columns"] = self._feature_columns_without_indicator_outputs(rebuilt, cfg)
         return StandardScalerStrategy().scale(rebuilt, cfg).splits
+
+    @staticmethod
+    def _feature_columns_without_indicator_outputs(splits: SplitResult, cfg: dict[str, Any]) -> list[str]:
+        train_cols = splits.train_df.collect_schema().names()
+        configured_outputs = {
+            str(column)
+            for mapping in (cfg.get("indicator_output_scalers") or {}).values()
+            if isinstance(mapping, dict)
+            for column in mapping.keys()
+        }
+        feature_columns = [c for c in train_cols if c not in {"timestamp", "target", "_row_id"} and c not in configured_outputs]
+        return feature_columns
 
     def compile_blueprint(self, ctx: ExperimentExecutor.ExecutionContext) -> dict[str, Any]:
         experiment = (ctx.config or {}).get("experiment")

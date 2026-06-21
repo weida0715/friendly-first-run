@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from app import create_app
 from app.infrastructure.database.base import Base
 from app.infrastructure.database.orm import (  # noqa: F401
@@ -14,7 +16,9 @@ from app.infrastructure.database.orm import (  # noqa: F401
 )
 from app.infrastructure.database.session import configure_engine, get_engine
 from app.infrastructure.database.orm.user_orm import UserORM
+from app.domain.models.user import User
 from app.repositories.unit_of_work import UnitOfWork
+from app.services.password_service import hash_password
 
 
 def _client():
@@ -50,6 +54,12 @@ def _register_only(client, username: str, email: str, name: str = "Test"):
             "password": "securepass",
         },
     )
+
+
+def _login_existing(client, email: str, password: str = "securepass"):
+    login = client.post("/api/auth/login", json={"email": email, "password": password})
+    raw_cookie = login.headers.get("Set-Cookie")
+    return raw_cookie.split(";", 1)[0] if raw_cookie else None
 
 
 def test_users_me_requires_auth_and_returns_profile() -> None:
@@ -119,6 +129,64 @@ def test_user_profile_access_owner_or_staff() -> None:
     allowed = client.get(
         f"/api/users/{bob_id}", headers={"Cookie": cookie_alice})
     assert allowed.status_code == 200
+
+
+def test_user_audit_requires_staff_and_returns_history() -> None:
+    client = _client()
+    _register_only(client, "adminaudit1", "admin_audit_access@example.com", "Admin")
+    _register_only(client, "normaudit1", "user_audit_access@example.com", "User")
+    with UnitOfWork() as uow:
+        admin = uow.users.get_by_email("admin_audit_access@example.com")
+        uow.session.get(UserORM, admin.UserID).Role = "Admin"
+        uow.session.flush()
+
+    with UnitOfWork() as uow:
+        now = datetime.now(timezone.utc)
+        user = uow.users.add(User(
+            user_id=None,
+            username="audituser",
+            email="audit_user@example.com",
+            password_hash=hash_password("securepass"),
+            name="User",
+            role="User",
+            status="Disabled",
+            created_at=now,
+            updated_at=now,
+        ))
+        user_id = user.UserID
+
+    cookie_user = _register_and_login(client, "normaudit1", "user_audit_access@example.com", "User")
+    assert client.get(f"/api/users/{user_id}/audit",
+                      headers={"Cookie": cookie_user}).status_code == 403
+
+    cookie_admin = _register_and_login(client, "adminaudit1", "admin_audit_access@example.com", "Admin")
+    response = client.get(
+        f"/api/users/{user_id}/audit", headers={"Cookie": cookie_admin})
+    assert response.status_code == 200
+    items = response.get_json()["data"]["items"]
+    assert len(items) >= 1
+    assert set(items[0]).issuperset({"action", "actor", "timestamp", "details"})
+
+
+def test_user_audit_missing_user_returns_404() -> None:
+    client = _client()
+    with UnitOfWork() as uow:
+        now = datetime.now(timezone.utc)
+        uow.users.add(User(
+            user_id=None,
+            username="adminmiss",
+            email="admin_missing@example.com",
+            password_hash=hash_password("securepass"),
+            name="Admin",
+            role="Admin",
+            status="Enabled",
+            created_at=now,
+            updated_at=now,
+        ))
+
+    cookie_admin = _login_existing(client, "admin_missing@example.com")
+    response = client.get("/api/users/999999/audit", headers={"Cookie": cookie_admin})
+    assert response.status_code == 404
 
 
 def test_staff_management_actions_constraints() -> None:

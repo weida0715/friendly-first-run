@@ -12,9 +12,15 @@ def build_access_control() -> AccessControlService:
     timeout_minutes = int(current_app.config.get(
         "SESSION_TIMEOUT_MINUTES", 1440))
     cookie_name = str(current_app.config.get(
-        "SESSION_COOKIE_NAME", "bee_session"))
+        "AUTH_SESSION_COOKIE_NAME", "bee_session"))
+    session_backend = str(current_app.config.get("SESSION_BACKEND", "memory"))
+    redis_url = current_app.config.get("REDIS_URL")
     return AccessControlService(
-        session_service=SessionService(timeout_minutes=timeout_minutes),
+        session_service=SessionService(
+            timeout_minutes=timeout_minutes,
+            backend=session_backend,
+            redis_url=redis_url if isinstance(redis_url, str) and redis_url else None,
+        ),
         cookie_name=cookie_name,
     )
 

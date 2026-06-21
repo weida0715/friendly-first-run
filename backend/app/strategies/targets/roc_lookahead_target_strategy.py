@@ -17,6 +17,8 @@ class RocLookaheadTargetStrategy(TargetStrategy):
     binary_label_rule = "1 when (close[t+lookahead] - close[t]) / close[t] > roc_threshold, otherwise 0"
 
     def __init__(self, lookahead_period: int = 1, roc_threshold: float = 0.0) -> None:
+        if lookahead_period < 1:
+            raise ValueError("lookahead_period must be >= 1")
         self.lookahead_period = lookahead_period
         self.roc_threshold = roc_threshold
 

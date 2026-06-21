@@ -26,7 +26,9 @@ See [Model Architectures](./model-architectures.md).
 
 ### Indicators section
 
-Stores selected feature generators. Indicators can be custom project indicators or TA-Lib indicators. Each indicator has name, source, parameter schema, constraints, defaults, output columns, and warm-up period.
+Stores selected feature generators. Indicators can be custom project indicators or TA-Lib indicators. Each indicator has name, source, parameter schema, constraints, defaults, output columns, output scalers, and warm-up period.
+
+Output scalers are stored per generated column and default to `none`.
 
 See [Indicators and Features](./indicators-and-features.md).
 

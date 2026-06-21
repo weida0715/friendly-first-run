@@ -8,7 +8,7 @@ describe('StatusBadge', () => {
     render(<StatusBadge status="enabled" />);
     const badge = screen.getByText('enabled');
     expect(badge).toBeInTheDocument();
-    expect(badge).toHaveClass('bg-emerald-600');
+    expect(badge).toHaveClass('bg-emerald-500/12');
   });
 
   it('falls back safely for unknown statuses', () => {
@@ -23,10 +23,10 @@ describe('StatusBadge', () => {
 describe('domain wrappers', () => {
   it('UserRoleBadge maps admin/moderator/user correctly', () => {
     const { rerender } = render(<UserRoleBadge role="administrator" />);
-    expect(screen.getByText('Admin')).toHaveClass('bg-red-600');
+    expect(screen.getByText('Admin')).toHaveClass('bg-destructive/12');
 
     rerender(<UserRoleBadge role="mod" />);
-    expect(screen.getByText('Moderator')).toHaveClass('bg-amber-500');
+    expect(screen.getByText('Moderator')).toHaveClass('bg-amber-500/12');
 
     rerender(<UserRoleBadge role="user" />);
     expect(screen.getByText('User')).toBeInTheDocument();
@@ -34,15 +34,15 @@ describe('domain wrappers', () => {
 
   it('UserStatusBadge maps enabled/disabled and degrades unknown safely', () => {
     const { rerender } = render(<UserStatusBadge status="enabled" />);
-    expect(screen.getByText('Enabled')).toHaveClass('bg-emerald-600');
+    expect(screen.getByText('Enabled')).toHaveClass('bg-emerald-500/12');
 
     rerender(<UserStatusBadge status="disabled" />);
-    expect(screen.getByText('Disabled')).toHaveClass('bg-red-600');
+    expect(screen.getByText('Disabled')).toHaveClass('bg-destructive/12');
 
     rerender(<UserStatusBadge status="Paused" />);
     const badge = screen.getByText('Paused');
     expect(badge).toBeInTheDocument();
-    expect(badge).not.toHaveClass('bg-red-600');
-    expect(badge).not.toHaveClass('bg-emerald-600');
+    expect(badge).not.toHaveClass('bg-destructive/12');
+    expect(badge).not.toHaveClass('bg-emerald-500/12');
   });
 });

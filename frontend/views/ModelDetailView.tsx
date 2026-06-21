@@ -48,6 +48,7 @@ const BACKTEST_ROWS: Array<[string, string]> = [
   ['Expectancy', 'expectancy'],
   ['Trades', 'trades'],
   ['Sharpe per bar', 'sharpe_per_bar'],
+  ['Sharpe annualized', 'sharpe_annualized'],
 ];
 
 const CLASSIFICATION_ROWS: Array<[string, string]> = [

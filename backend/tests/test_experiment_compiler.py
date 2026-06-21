@@ -23,13 +23,18 @@ def _blueprint() -> _Blueprint:
     return _Blueprint(
         architecture={
             "name": "logistic_regressor_arc",
-            "parameters": {"C": 1.0, "solver": "lbfgs"},
+            "parameters": {"C": 1.0, "solver": "lbfgs", "class_weight": None},
             "parameter_constraints": {
                 "C": {"type": "number", "min": 0.1, "max": 10.0},
                 "solver": {"type": "string", "allowed_values": ["lbfgs", "liblinear"]},
+                "class_weight": {"type": "string", "allowed_values": [None, "balanced"]},
             },
         },
-        indicators={"parameters": {"vwap": {"output": "vwap"}}, "parameter_constraints": {"vwap": {"output": {"type": "string"}}}},
+        indicators={
+            "parameters": {"vwap": {"output": "vwap"}},
+            "parameter_constraints": {"vwap": {"output": {"type": "string"}}},
+            "output_scalers": {"vwap": {"vwap": "standardization"}},
+        },
         features={},
     )
 
@@ -129,6 +134,20 @@ def test_compiler_applies_fixed_value_override() -> None:
     assert plan.max_permutation_count == 1
 
 
+def test_compiler_accepts_whitespace_padded_allowed_string_values() -> None:
+    plan = ExperimentCompiler.compile(
+        blueprint=_blueprint(),
+        experiment_payload={
+            "train_split": 80,
+            "val_split": 10,
+            "test_split": 10,
+            "parameter_overrides": {"architecture": {"class_weight": " balanced "}},
+        },
+    )
+
+    assert plan.compiled_experiment_snapshot["effective_parameters"]["architecture"]["class_weight"] == "balanced"
+
+
 def test_compiler_applies_narrowed_range_override() -> None:
     plan = ExperimentCompiler.compile(
         blueprint=_blueprint(),
@@ -191,6 +210,16 @@ def test_compiler_snapshot_remains_immutable_after_blueprint_edit() -> None:
 
     assert plan.compiled_blueprint_snapshot["architecture"]["parameters"]["C"] == 1.0
     assert plan.compiled_experiment_snapshot["effective_parameters"]["architecture"]["C"] == 2.0
+
+
+def test_compiler_preserves_indicator_output_scalers() -> None:
+    plan = ExperimentCompiler.compile(
+        blueprint=_blueprint(),
+        experiment_payload={"train_split": 80, "val_split": 10, "test_split": 10, "parameter_overrides": {"indicator_output_scalers": {"vwap": {"vwap": "log_transform"}}}},
+    )
+
+    assert plan.compiled_blueprint_snapshot["indicators"]["output_scalers"]["vwap"]["vwap"] == "standardization"
+    assert plan.compiled_experiment_snapshot["indicator_output_scalers"]["vwap"]["vwap"] == "log_transform"
 
 
 def test_compiler_override_conflict_reports_multiple_errors() -> None:

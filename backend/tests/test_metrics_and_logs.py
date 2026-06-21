@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 import polars as pl
+import pytest
 from app.strategies.trading.long_only_single_position_strategy import BACKTEST_FIELDS, LongOnlySinglePositionStrategy
 from app.strategies.logs.confusion_metrics_log_strategy import CONFUSION_FIELDS, ConfusionMetricsLogStrategy
 from app.strategies.logs.backtest_log_strategy import BacktestLogStrategy
@@ -38,6 +39,22 @@ def test_backtest_schema_long_only_and_cost():
     assert all(t["side"] == "long" for t in no_cost.trades)
     assert all(t["exit_index"] > t["entry_index"] for t in no_cost.trades)
     assert with_cost.metrics["total_return_net_pct"] < no_cost.metrics["total_return_net_pct"]
+
+
+def test_backtest_reports_annualized_sharpe():
+    frame = pl.DataFrame({
+        "timestamp": [datetime(2026, 1, 1, 0, i) for i in range(3)],
+        "close": [100.0, 110.0, 105.0],
+    }).lazy()
+    result = LongOnlySinglePositionStrategy().run(
+        frame,
+        {"_preds": [1, 1, 0]},
+        {"execution_lag_bars": 0, "interval": "1m"},
+    )
+    assert result.metrics["sharpe_per_bar"] is not None
+    assert result.metrics["sharpe_annualized"] == pytest.approx(
+        result.metrics["sharpe_per_bar"] * (525600 ** 0.5)
+    )
 
 
 def test_confusion_log_exact_schema_and_binary_metrics():
@@ -420,6 +437,30 @@ def test_long_only_single_position_uses_execution_lag_for_entry_and_exit():
     assert result.trades[0]["exit_index"] == 3
 
 
+def test_long_only_single_position_compounds_trade_returns():
+    frame = pl.DataFrame({
+        "timestamp": [datetime(2026, 1, 1, 0, i) for i in range(4)],
+        "close": [100.0, 110.0, 110.0, 121.0],
+    }).lazy()
+    result = LongOnlySinglePositionStrategy().run(
+        frame, {"_preds": [1, 0, 1, 0]}, {"execution_lag_bars": 0})
+    assert result.metrics["trades_count"] == 2
+    assert result.metrics["total_return_gross_pct"] == pytest.approx(21.0)
+    assert result.metrics["total_return_net_pct"] == pytest.approx(21.0)
+
+
+def test_long_only_single_position_uses_mark_to_market_drawdown():
+    frame = pl.DataFrame({
+        "timestamp": [datetime(2026, 1, 1, 0, i) for i in range(3)],
+        "close": [100.0, 75.0, 110.0],
+    }).lazy()
+    result = LongOnlySinglePositionStrategy().run(
+        frame, {"_preds": [1, 1, 0]}, {"execution_lag_bars": 0})
+    assert result.metrics["trades_count"] == 1
+    assert result.metrics["total_return_net_pct"] == pytest.approx(10.0)
+    assert result.metrics["max_drawdown_pct"] == pytest.approx(25.0)
+
+
 def test_long_only_single_position_force_closes_open_trade_at_final_bar():
     frame = pl.DataFrame({
         "timestamp": [datetime(2026, 1, 1, 0, i) for i in range(4)],
@@ -430,6 +471,19 @@ def test_long_only_single_position_force_closes_open_trade_at_final_bar():
     assert result.metrics["trades_count"] == 1
     assert result.trades[0]["entry_index"] == 1
     assert result.trades[0]["exit_index"] == 3
+
+
+def test_long_only_single_position_respects_multi_bar_execution_lag():
+    frame = pl.DataFrame({
+        "timestamp": [datetime(2026, 1, 1, 0, i) for i in range(5)],
+        "close": [100.0, 100.0, 100.0, 100.0, 100.0],
+    }).lazy()
+    result = LongOnlySinglePositionStrategy().run(
+        frame, {"_preds": [1, 0, 0, 0, 0]}, {"execution_lag_bars": 2})
+    assert result.metrics["trades_count"] == 1
+    assert result.trades[0]["entry_index"] == 2
+    assert result.trades[0]["exit_index"] == 4
+    assert result.metrics["bars_in_market_pct"] == pytest.approx(40.0)
 
 
 def test_confusion_filters_invalid_binary_labels_without_crashing():
@@ -460,3 +514,21 @@ def test_confusion_return_means_use_same_filtered_rows_as_x_stats():
     assert log["fp_count"] == 1
     assert log["tp_mean_return_pct"] == 2.0
     assert log["fp_mean_return_pct"] == -1.0
+
+
+def test_confusion_defaults_to_execution_lag_one():
+    log = ConfusionMetricsLogStrategy().build({
+        "y_true": [1, 0, 1],
+        "y_pred": [1, 0, 1],
+        "price_change": [10.0, -5.0, 7.0],
+    })
+    assert log["tp_mean_return_pct"] == -5.0
+
+
+def test_confusion_accepts_iterables_and_rejects_probability_predictions():
+    log = ConfusionMetricsLogStrategy().build({
+        "y_true": pl.Series([1, 0, 1]),
+        "y_pred": pl.Series([0.9, 0.1, 0.8]),
+        "price_change": pl.Series([5.0, -2.0, 3.0]),
+    })
+    assert log["n_kept"] == 0

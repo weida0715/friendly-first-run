@@ -64,7 +64,7 @@ class TalibIndicatorStrategy:
             talib_params = _sanitize_talib_params({k: v for k, v in params.items(
             ) if k not in TALIB_INPUT_COLUMNS and k not in {"inputs", "output", "outputs"}})
             result = function(*inputs, **talib_params)
-            return batch.with_columns(self._result_columns(name, result, params, output_prefix))
+            return batch.with_columns(self._result_columns(name, result, params, output_prefix)).select(list(schema.keys()))
 
         return df.map_batches(_talib_map, schema=schema)
 

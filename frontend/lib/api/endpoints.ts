@@ -22,6 +22,7 @@ export const API_ENDPOINTS = {
     list: '/users',
     me: '/users/me',
     byId: (userId: string | number) => `/users/${userId}`,
+    audit: (userId: string | number) => `/users/${userId}/audit`,
     status: (userId: string | number) => `/users/${userId}/status`,
     password: (userId: string | number) => `/users/${userId}/password`,
     role: (userId: string | number) => `/users/${userId}/role`,
@@ -69,10 +70,13 @@ export const API_ENDPOINTS = {
   marketData: {
     btcusdtKlines: '/market-data/btcusdt/klines',
     btcusdtMetadata: '/market-data/btcusdt/metadata',
+    btcusdtTargetPreview: '/market-data/btcusdt/target-preview',
   },
   system: {
     activeQueue: '/system/queue/active',
     settings: '/system/settings',
+    events: '/system/events',
+    eventsDownload: '/system/events/download',
   },
 } as const;
 

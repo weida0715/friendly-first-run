@@ -28,6 +28,13 @@ export interface BTCUSDTChartPoint {
 
 export interface BTCUSDTPriceChartProps {
   data?: BTCUSDTChartPoint[];
+  markers?: Array<{
+    time: number;
+    position: 'aboveBar' | 'belowBar' | 'inBar';
+    color: string;
+    shape?: 'circle' | 'square' | 'arrowUp' | 'arrowDown';
+    text?: string;
+  }>;
   loading?: boolean;
   error?: string | null;
   height?: number;
@@ -38,6 +45,7 @@ const LOAD_OLDER_THRESHOLD = 200;
 
 export function BTCUSDTPriceChart({
   data,
+  markers,
   loading = false,
   error = null,
   height = 320,
@@ -162,6 +170,16 @@ export function BTCUSDTPriceChart({
     }));
     setLegend(normalized[normalized.length - 1]);
 
+    if (typeof (candleSeries as any).setMarkers === 'function') {
+      (candleSeries as any).setMarkers((markers ?? []).map((marker) => ({
+        time: marker.time as UTCTimestamp,
+        position: marker.position,
+        color: marker.color,
+        shape: marker.shape ?? 'circle',
+        text: marker.text ?? '',
+      })));
+    }
+
     if (!initializedRef.current) {
       chart.timeScale().fitContent();
       initializedRef.current = true;
@@ -180,7 +198,7 @@ export function BTCUSDTPriceChart({
       resizeObserver?.disconnect();
       // keep chart instance alive across data updates; teardown on component unmount only
     };
-  }, [data, error, height, loading]);
+  }, [data, error, height, loading, markers]);
 
   useEffect(() => {
     return () => {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 import math
 from statistics import mean
 from typing import Any
@@ -34,11 +35,11 @@ class ConfusionMetricsLogStrategy(ExperimentLogStrategy):
     """Build confusion-matrix metrics with optional aligned return stats."""
 
     def build(self, payload: dict[str, Any]) -> dict[str, Any]:
-        y_true = _coerce_binary_series(payload.get("y_true") or payload.get("actual") or [])
-        y_pred = _coerce_binary_series(payload.get("y_pred") or payload.get("predicted") or [])
-        source = _coerce_float_series(payload.get("x") or payload.get("price_change") or payload.get("returns") or [])
-        price_change = _coerce_float_series(payload.get("price_change") or [])
-        lag = max(0, _coerce_int(payload.get("execution_lag_bars"), default=0))
+        y_true = _coerce_binary_series(_first_present(payload, "y_true", "actual"))
+        y_pred = _coerce_binary_series(_first_present(payload, "y_pred", "predicted"))
+        source = _coerce_float_series(_first_present(payload, "x", "price_change", "returns"))
+        price_change = _coerce_float_series(_first_present(payload, "price_change"))
+        lag = max(0, _coerce_int(payload.get("execution_lag_bars"), default=1))
         quantiles = payload.get("outlier_quantiles")
 
         n = min(len(y_true), len(y_pred))
@@ -53,16 +54,17 @@ class ConfusionMetricsLogStrategy(ExperimentLogStrategy):
 
         aligned_returns = _aligned_returns(source, price_change, lag)
         keep = [True] * n
+        filter_values = aligned_returns[:]
         if isinstance(quantiles, (tuple, list)) and len(quantiles) == 2:
             low_q = _coerce_float(quantiles[0])
             high_q = _coerce_float(quantiles[1])
-            finite_source = [value for value in source if value is not None]
-            if low_q is not None and high_q is not None and finite_source:
-                lo = _percentile(finite_source, low_q)
-                hi = _percentile(finite_source, high_q)
+            finite_values = [value for value in filter_values if value is not None]
+            if low_q is not None and high_q is not None and finite_values:
+                lo = _percentile(finite_values, low_q)
+                hi = _percentile(finite_values, high_q)
                 keep = [
                     value is not None and lo <= value <= hi
-                    for value in source
+                    for value in filter_values
                 ]
 
         rows = [
@@ -119,18 +121,11 @@ def _aligned_returns(source: list[float | None], price_change: list[float | None
 
 
 def _coerce_binary_series(values: Any) -> list[int | None]:
-    result: list[int | None] = []
-    for value in values if isinstance(values, (list, tuple)) else []:
-        coerced = _coerce_int(value, default=None)
-        if coerced in (0, 1):
-            result.append(coerced)
-        else:
-            result.append(None)
-    return result
+    return [_coerce_binary(value) for value in _as_iterable(values)]
 
 
 def _coerce_float_series(values: Any) -> list[float | None]:
-    return [_coerce_float(value) for value in values if isinstance(values, (list, tuple))]
+    return [_coerce_float(value) for value in _as_iterable(values)]
 
 
 def _coerce_float(value: Any) -> float | None:
@@ -147,6 +142,37 @@ def _coerce_int(value: Any, default: int | None = None) -> int | None:
     except (TypeError, ValueError):
         return default
     return parsed
+
+
+def _coerce_binary(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return int(value)
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(parsed):
+        return None
+    if parsed == 0.0 or parsed == 1.0:
+        return int(parsed)
+    return None
+
+
+def _as_iterable(values: Any) -> list[Any]:
+    if values is None or isinstance(values, (str, bytes)):
+        return []
+    if isinstance(values, Iterable):
+        return list(values)
+    return []
+
+
+def _first_present(payload: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in payload and payload[key] is not None:
+            return payload[key]
+    return []
 
 
 def _mean(values: list[float | None]) -> float | None:
@@ -173,4 +199,3 @@ def _percentile(values: list[float], q: float) -> float:
         return ordered[lower]
     weight = position - lower
     return ordered[lower] * (1 - weight) + ordered[upper] * weight
-

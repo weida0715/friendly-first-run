@@ -14,6 +14,7 @@ from app.repositories.favorite_blueprint_repository import FavoriteBlueprintRepo
 from app.repositories.favorite_model_repository import FavoriteModelRepository
 from app.repositories.market_data_repository import MarketDataRepository
 from app.repositories.model_repository import ModelRepository
+from app.repositories.system_event_repository import SystemEventRepository
 from app.repositories.system_setting_repository import SystemSettingRepository
 from app.repositories.user_repository import UserRepository
 
@@ -30,6 +31,7 @@ class UnitOfWork:
         self.experiment_logs: ExperimentLogRepository | None = None
         self.favorite_models: FavoriteModelRepository | None = None
         self.favorite_blueprints: FavoriteBlueprintRepository | None = None
+        self.system_events: SystemEventRepository | None = None
         self.market_data: MarketDataRepository | None = None
         self.system_settings: SystemSettingRepository | None = None
 
@@ -44,6 +46,7 @@ class UnitOfWork:
         self.experiment_logs = ExperimentLogRepository(self.session)
         self.favorite_models = FavoriteModelRepository(self.session)
         self.favorite_blueprints = FavoriteBlueprintRepository(self.session)
+        self.system_events = SystemEventRepository(self.session)
         self.market_data = MarketDataRepository(self.session)
         self.system_settings = SystemSettingRepository(self.session)
 

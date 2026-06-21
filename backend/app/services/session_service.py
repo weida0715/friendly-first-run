@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import json
 import secrets
 from threading import Lock
 from flask import Request
+from redis import Redis
 
 
 @dataclass(slots=True)
@@ -24,8 +26,15 @@ class SessionService:
     _store: dict[str, SessionRecord] = {}
     _lock = Lock()
 
-    def __init__(self, timeout_minutes: int = 1440) -> None:
+    def __init__(self, timeout_minutes: int = 1440, backend: str = "memory", redis_url: str | None = None, cookie_name: str = "bee_session") -> None:
         self._timeout_minutes = timeout_minutes
+        self._backend = str(backend or "memory").lower()
+        self._redis_url = redis_url
+        self._cookie_name = cookie_name
+        self._redis = Redis.from_url(redis_url) if self._backend == "redis" and redis_url else None
+
+    def _key(self, session_id: str) -> str:
+        return f"bee:session:{session_id}"
 
     @classmethod
     def _purge_expired_locked(cls, now: datetime) -> None:
@@ -48,13 +57,38 @@ class SessionService:
             expires_at=now + timedelta(minutes=self._timeout_minutes),
         )
 
-        with self._lock:
-            self._purge_expired_locked(now)
-            self._store[session_id] = record
+        if self._backend == "redis" and self._redis is not None:
+            ttl = max(60, self._timeout_minutes * 60)
+            self._redis.setex(self._key(session_id), ttl, json.dumps({
+                "session_id": record.session_id,
+                "user_id": record.user_id,
+                "role": record.role,
+                "created_at": record.created_at.isoformat(),
+                "expires_at": record.expires_at.isoformat(),
+            }))
+        else:
+            with self._lock:
+                self._purge_expired_locked(now)
+                self._store[session_id] = record
 
         return record
 
     def get_server_session(self, session_id: str) -> SessionRecord | None:
+        if self._backend == "redis" and self._redis is not None:
+            raw = self._redis.get(self._key(session_id))
+            if not raw:
+                return None
+            try:
+                payload = json.loads(raw)
+                return SessionRecord(
+                    session_id=str(payload["session_id"]),
+                    user_id=int(payload["user_id"]),
+                    role=str(payload["role"]),
+                    created_at=datetime.fromisoformat(str(payload["created_at"])),
+                    expires_at=datetime.fromisoformat(str(payload["expires_at"])),
+                )
+            except Exception:
+                return None
         with self._lock:
             record = self._store.get(session_id)
             if record is None:
@@ -65,6 +99,9 @@ class SessionService:
             return record
 
     def destroy_server_session(self, session_id: str) -> None:
+        if self._backend == "redis" and self._redis is not None:
+            self._redis.delete(self._key(session_id))
+            return
         with self._lock:
             self._store.pop(session_id, None)
 

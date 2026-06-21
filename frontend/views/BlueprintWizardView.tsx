@@ -19,8 +19,9 @@ type WizardStep = 1 | 2 | 3 | 4;
 type ParamState = Record<string, string>;
 type IndicatorParamType = TokenizedParamDefinition['type'];
 type IndicatorParamOption = TokenizedParamDefinition;
-interface IndicatorOption { id: string; name: string; category: string; source: 'custom' | 'ta-lib'; params: IndicatorParamOption[]; outputs: string[]; description: string }
+interface IndicatorOption { id: string; name: string; category: string; source: 'custom' | 'ta-lib'; params: IndicatorParamOption[]; outputs: string[]; description: string; outputScalers?: Record<string, ScalerStrategy> }
 type FieldErrors = Record<string, string>;
+type ScalerStrategy = 'none' | 'normalization' | 'standardization' | 'log_transform';
 
 interface BlueprintConfig {
   name: string;
@@ -28,6 +29,7 @@ interface BlueprintConfig {
   category: 'Literature' | 'Custom';
   tags: string;
   indicators: Record<string, ParamState>;
+  indicatorOutputScalers: Record<string, Record<string, ScalerStrategy>>;
   referenceModelId: string;
   referenceModelParams: ParamState;
 }
@@ -172,6 +174,7 @@ export function BlueprintWizardView({ mode = 'create', sourceBlueprintId }: { mo
     category: 'Custom',
     tags: '',
     indicators: {},
+    indicatorOutputScalers: {},
     referenceModelId: sourceBlueprintId ?? '',
     referenceModelParams: {},
   });
@@ -261,11 +264,12 @@ export function BlueprintWizardView({ mode = 'create', sourceBlueprintId }: { mo
     setConfig((prev) => {
       if (prev.indicators[id]) {
         const { [id]: _, ...rest } = prev.indicators;
-        return { ...prev, indicators: rest };
+        const { [id]: __, ...scalerRest } = prev.indicatorOutputScalers;
+        return { ...prev, indicators: rest, indicatorOutputScalers: scalerRest };
       }
       const paramDefaults: ParamState = {};
       indicator.params.forEach((param) => (paramDefaults[param.name] = String(param.default)));
-      return { ...prev, indicators: { ...prev.indicators, [id]: paramDefaults } };
+      return { ...prev, indicators: { ...prev.indicators, [id]: paramDefaults }, indicatorOutputScalers: { ...prev.indicatorOutputScalers, [id]: Object.fromEntries(indicator.outputs.map((output) => [output, 'none' as ScalerStrategy])) } };
     });
     clearFieldError('indicators');
     setStepError(null);
@@ -275,6 +279,16 @@ export function BlueprintWizardView({ mode = 'create', sourceBlueprintId }: { mo
     setConfig((prev) => ({ ...prev, indicators: { ...prev.indicators, [id]: { ...prev.indicators[id], [paramName]: value } } }));
     clearFieldError(`indicators.${id}.${paramName}`);
     setStepError(null);
+  };
+
+  const updateIndicatorOutputScaler = (indicatorId: string, output: string, scaler: ScalerStrategy) => {
+    setConfig((prev) => ({
+      ...prev,
+      indicatorOutputScalers: {
+        ...prev.indicatorOutputScalers,
+        [indicatorId]: { ...(prev.indicatorOutputScalers[indicatorId] ?? {}), [output]: scaler },
+      },
+    }));
   };
 
   const selectReferenceModel = (id: string) => {
@@ -391,9 +405,10 @@ export function BlueprintWizardView({ mode = 'create', sourceBlueprintId }: { mo
         indicators: {
           selected: Object.keys(config.indicators),
           params: config.indicators,
+          output_scalers: config.indicatorOutputScalers,
           definitions: Object.keys(config.indicators).map((id) => {
             const indicator = availableIndicators.find((item) => item.id === id);
-            return { name: id, source: indicator?.source, outputs: indicator?.outputs ?? [], parameters: config.indicators[id] ?? {} };
+            return { name: id, source: indicator?.source, outputs: indicator?.outputs ?? [], parameters: config.indicators[id] ?? {}, outputScalers: config.indicatorOutputScalers[id] ?? {} };
           }),
         },
         architecture: {
@@ -453,6 +468,29 @@ export function BlueprintWizardView({ mode = 'create', sourceBlueprintId }: { mo
                 <Label className="text-xs">{param.name}</Label>
                 {describeConstraint(param) ? <p className="text-[11px] text-muted-foreground">{describeConstraint(param)}</p> : null}
                 <TokenizedParameterInput value={config.indicators[indicator.id]?.[param.name] ?? ''} param={param} error={fieldErrors[`indicators.${indicator.id}.${param.name}`]} onChange={(value) => updateIndicatorParam(indicator.id, param.name, value)} />
+              </div>
+            ))}
+          </div>
+        )}
+                {selected && indicator.outputs.length > 0 && (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Scaling method</p>
+              <p className="text-[11px] text-muted-foreground">Choose how each generated output column should be scaled.</p>
+            </div>
+            {indicator.outputs.map((output) => (
+              <div key={output} className="space-y-1 rounded-lg border bg-muted/20 p-3">
+                <Label className="text-xs">{output}</Label>
+                <SelectField
+                  value={config.indicatorOutputScalers[indicator.id]?.[output] ?? 'none'}
+                  onValueChange={(value) => updateIndicatorOutputScaler(indicator.id, output, value as ScalerStrategy)}
+                  options={[
+                    { value: 'none', label: 'none' },
+                    { value: 'normalization', label: 'normalization' },
+                    { value: 'standardization', label: 'standardization' },
+                    { value: 'log_transform', label: 'log_transform' },
+                  ]}
+                />
               </div>
             ))}
           </div>
@@ -671,6 +709,9 @@ export function BlueprintWizardView({ mode = 'create', sourceBlueprintId }: { mo
                               .join(', ')})
                           </span>
                         )}
+                        <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+                          {Object.entries(config.indicatorOutputScalers[id] ?? {}).map(([output, scaler]) => <div key={output}><span className="font-mono text-foreground">{output}</span>: {scaler}</div>)}
+                        </div>
                       </div>
                     ))}
                   </div>

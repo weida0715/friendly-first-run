@@ -29,8 +29,8 @@ def _valid_payload() -> dict:
 
 def test_validate_success_payload() -> None:
     payload = _valid_payload()
-    actor = SimpleNamespace(id=7)
-    blueprint = SimpleNamespace(UserID=7)
+    actor = SimpleNamespace(id=7, role="User")
+    blueprint = SimpleNamespace(UserID=7, ApprovalState="Draft")
     repo = _BlueprintRepoStub(blueprint)
 
     result = ExperimentValidator.validate(
@@ -47,8 +47,8 @@ def test_validate_missing_name_symbol_and_ordering() -> None:
     payload["start_date"] = "2026-01-10T00:00:00Z"
     payload["end_date"] = "2026-01-01T00:00:00Z"
 
-    actor = SimpleNamespace(id=7)
-    blueprint = SimpleNamespace(UserID=7)
+    actor = SimpleNamespace(id=7, role="User")
+    blueprint = SimpleNamespace(UserID=7, ApprovalState="Draft")
     repo = _BlueprintRepoStub(blueprint)
 
     result = ExperimentValidator.validate(
@@ -66,8 +66,8 @@ def test_validate_split_numeric_total_and_minimum_constraints() -> None:
     payload["val_split"] = 5
     payload["test_split"] = 5
 
-    actor = SimpleNamespace(id=7)
-    blueprint = SimpleNamespace(UserID=7)
+    actor = SimpleNamespace(id=7, role="User")
+    blueprint = SimpleNamespace(UserID=7, ApprovalState="Draft")
     repo = _BlueprintRepoStub(blueprint)
 
     result = ExperimentValidator.validate(
@@ -85,8 +85,8 @@ def test_validate_split_total_error_when_not_one() -> None:
     payload["val_split"] = 10
     payload["test_split"] = 10
 
-    actor = SimpleNamespace(id=7)
-    blueprint = SimpleNamespace(UserID=7)
+    actor = SimpleNamespace(id=7, role="User")
+    blueprint = SimpleNamespace(UserID=7, ApprovalState="Draft")
     repo = _BlueprintRepoStub(blueprint)
 
     result = ExperimentValidator.validate(
@@ -102,8 +102,8 @@ def test_validate_interval_accepts_rfc009_supported_values() -> None:
     payload = _valid_payload()
     payload["interval"] = "4h"
 
-    actor = SimpleNamespace(id=7)
-    blueprint = SimpleNamespace(UserID=7)
+    actor = SimpleNamespace(id=7, role="User")
+    blueprint = SimpleNamespace(UserID=7, ApprovalState="Draft")
     repo = _BlueprintRepoStub(blueprint)
 
     result = ExperimentValidator.validate(
@@ -115,7 +115,7 @@ def test_validate_interval_accepts_rfc009_supported_values() -> None:
 
 def test_validate_blueprint_not_found_or_not_accessible() -> None:
     payload = _valid_payload()
-    actor = SimpleNamespace(id=7)
+    actor = SimpleNamespace(id=7, role="User")
 
     missing_repo = _BlueprintRepoStub(None)
     missing_result = ExperimentValidator.validate(
@@ -123,11 +123,46 @@ def test_validate_blueprint_not_found_or_not_accessible() -> None:
     assert missing_result.ok is False
     assert "blueprintId" in missing_result.errors
 
-    foreign_repo = _BlueprintRepoStub(SimpleNamespace(UserID=99))
+    foreign_repo = _BlueprintRepoStub(SimpleNamespace(UserID=99, ApprovalState="Draft"))
     foreign_result = ExperimentValidator.validate(
         payload, actor=actor, blueprint_repo=foreign_repo)
     assert foreign_result.ok is False
     assert "blueprintId" in foreign_result.errors
+
+    for state in ("Draft", "Pending", "Rejected"):
+        result = ExperimentValidator.validate(
+            payload,
+            actor=actor,
+            blueprint_repo=_BlueprintRepoStub(SimpleNamespace(UserID=99, ApprovalState=state)),
+        )
+        assert result.ok is False
+        assert result.errors["blueprintId"] == ["Blueprint is not accessible."]
+
+
+def test_validate_allows_approved_blueprint_for_non_owner() -> None:
+    payload = _valid_payload()
+    actor = SimpleNamespace(id=7, role="User")
+    blueprint = SimpleNamespace(UserID=99, ApprovalState="Approved")
+    repo = _BlueprintRepoStub(blueprint)
+
+    result = ExperimentValidator.validate(
+        payload, actor=actor, blueprint_repo=repo)
+
+    assert result.ok is True
+    assert result.errors == {}
+
+
+def test_validate_allows_staff_for_non_owned_blueprint() -> None:
+    payload = _valid_payload()
+    actor = SimpleNamespace(id=7, role="Moderator")
+    blueprint = SimpleNamespace(UserID=99, ApprovalState="Draft")
+    repo = _BlueprintRepoStub(blueprint)
+
+    result = ExperimentValidator.validate(
+        payload, actor=actor, blueprint_repo=repo)
+
+    assert result.ok is True
+    assert result.errors == {}
 
 
 def test_validate_override_constraints() -> None:

@@ -113,9 +113,15 @@ class ExperimentValidator:
                 errors["blueprintId"].append("Blueprint is not accessible.")
             else:
                 actor_id = cls._resolve_id(actor, ("user_id", "id", "UserID"))
-                blueprint_owner_id = cls._resolve_id(
-                    blueprint, ("user_id", "UserID"))
-                if actor_id is None or blueprint_owner_id is None or int(actor_id) != int(blueprint_owner_id):
+                blueprint_owner_id = cls._resolve_id(blueprint, ("user_id", "UserID"))
+                blueprint_state = str(
+                    cls._resolve_id(blueprint, ("approval_state", "ApprovalState")) or ""
+                ).lower()
+                actor_role = str(cls._resolve_id(actor, ("role", "Role")) or "").lower()
+                is_staff = actor_role in {"moderator", "admin"}
+                is_owner = actor_id is not None and blueprint_owner_id is not None and int(actor_id) == int(blueprint_owner_id)
+                is_public = blueprint_state == "approved"
+                if not (is_owner or is_staff or is_public):
                     errors["blueprintId"].append(
                         "Blueprint is not accessible.")
 

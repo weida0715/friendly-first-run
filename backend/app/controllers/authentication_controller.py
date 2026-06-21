@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from app.domain.models.user import User
 from app.repositories.unit_of_work import UnitOfWork
 from app.responses import error_response, ok_response
+from app.controllers.system_controller import SystemController
 from app.services.access_control_service import AccessControlService
 from app.services.password_service import hash_password, verify_password
 from app.services.session_service import SessionService
@@ -33,7 +34,7 @@ class AuthenticationController:
         timeout_minutes = int(current_app.config.get(
             "SESSION_TIMEOUT_MINUTES", 1440))
         cookie_name = str(current_app.config.get(
-            "SESSION_COOKIE_NAME", SESSION_COOKIE_NAME))
+            "AUTH_SESSION_COOKIE_NAME", SESSION_COOKIE_NAME))
         cookie_samesite = str(current_app.config.get(
             "SESSION_COOKIE_SAMESITE", "Lax"))
         cookie_secure = bool(current_app.config.get(
@@ -128,6 +129,7 @@ def register():
                     updated_at=now,
                 )
             )
+            SystemController.record_event(scope="auth", action="User registered", actor=created_user, target_type="User", target_id=str(created_user.user_id), message=f"{created_user.username} registered")
     except IntegrityError:
         return error_response("Username or email already exists", 409, code="USER_CONFLICT")
 
@@ -176,9 +178,16 @@ def login():
     cookie_name = str(session_config["cookie_name"])
     cookie_samesite = str(session_config["cookie_samesite"])
     cookie_secure = bool(session_config["cookie_secure"])
-    session_service = SessionService(timeout_minutes=timeout_minutes)
+    session_backend = str(current_app.config.get("SESSION_BACKEND", "memory"))
+    redis_url = current_app.config.get("REDIS_URL")
+    session_service = SessionService(
+        timeout_minutes=timeout_minutes,
+        backend=session_backend,
+        redis_url=redis_url if isinstance(redis_url, str) and redis_url else None,
+    )
     session_record = session_service.create_server_session(
         user_id=user.user_id, role=user.role)
+    SystemController.record_event(scope="auth", action="User logged in", actor=user, target_type="Session", target_id=session_record.session_id, message=f"{user.username} logged in")
 
     response, status_code = ok_response(
         {
@@ -212,7 +221,13 @@ def me():
     session_config = AuthenticationController._get_session_config()
     timeout_minutes = int(session_config["timeout_minutes"])
     cookie_name = str(session_config["cookie_name"])
-    session_service = SessionService(timeout_minutes=timeout_minutes)
+    session_backend = str(current_app.config.get("SESSION_BACKEND", "memory"))
+    redis_url = current_app.config.get("REDIS_URL")
+    session_service = SessionService(
+        timeout_minutes=timeout_minutes,
+        backend=session_backend,
+        redis_url=redis_url if isinstance(redis_url, str) and redis_url else None,
+    )
     access_control_service = AccessControlService(
         session_service=session_service,
         cookie_name=cookie_name,
@@ -247,10 +262,17 @@ def logout():
     cookie_samesite = str(session_config["cookie_samesite"])
     cookie_secure = bool(session_config["cookie_secure"])
 
-    session_service = SessionService(timeout_minutes=timeout_minutes)
+    session_backend = str(current_app.config.get("SESSION_BACKEND", "memory"))
+    redis_url = current_app.config.get("REDIS_URL")
+    session_service = SessionService(
+        timeout_minutes=timeout_minutes,
+        backend=session_backend,
+        redis_url=redis_url if isinstance(redis_url, str) and redis_url else None,
+    )
     session_id = request.cookies.get(cookie_name)
     if session_id:
         session_service.destroy_server_session(session_id)
+        SystemController.record_event(scope="auth", action="User logged out", actor=None, target_type="Session", target_id=session_id, message="Session ended")
 
     response, status_code = ok_response(
         {"data": {"loggedOut": True}}, status_code=200)
