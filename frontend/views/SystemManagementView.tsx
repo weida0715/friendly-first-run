@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import { RefreshCcw, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { RefreshCcw, Square, Trash2 } from 'lucide-react';
 import { BaseView } from './BaseView';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -51,8 +51,10 @@ export function SystemManagementView() {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [marketData, setMarketData] = useState<BTCUSDTMetadata | null>(null);
   const [marketActionMessage, setMarketActionMessage] = useState<string | null>(null);
+  const [isCatchingUp, setIsCatchingUp] = useState(false);
   const [events, setEvents] = useState<Array<Record<string, unknown>>>([]);
   const [refreshTick, setRefreshTick] = useState(0);
+  const stopCatchUpRef = useRef(false);
 
   const loadAdminSnapshot = async () => {
     const [queueResponse, settingsResponse, eventsResponse, metadataResponse] = await Promise.allSettled([
@@ -152,16 +154,36 @@ export function SystemManagementView() {
   };
 
   const runCatchUp = async () => {
+    if (isCatchingUp) {
+      stopCatchUpRef.current = true;
+      setMarketActionMessage('Stopping BTCUSDT catch-up after the current batch.');
+      return;
+    }
+
     setMarketActionMessage(null);
+    stopCatchUpRef.current = false;
+    setIsCatchingUp(true);
+    let totalRows = 0;
+    let batches = 0;
     try {
-      const response = await catchUpBTCUSDTKlines();
-      const rows = response.data?.updatedRows ?? 0;
-      const suffix = response.data?.hasMore ? ' Run again to continue.' : '';
-      setMarketActionMessage(`BTCUSDT catch-up updated ${rows} rows.${suffix}`);
-      notifyBTCUSDTCacheUpdated();
-      refreshNow();
+      let hasMore = true;
+      while (hasMore && !stopCatchUpRef.current) {
+        const response = await catchUpBTCUSDTKlines();
+        const rows = response.data?.updatedRows ?? 0;
+        totalRows += rows;
+        batches += 1;
+        hasMore = Boolean(response.data?.hasMore);
+        setMarketActionMessage(`BTCUSDT catch-up updated ${totalRows} rows across ${batches} batch${batches === 1 ? '' : 'es'}.`);
+        notifyBTCUSDTCacheUpdated();
+        refreshNow();
+      }
+      if (stopCatchUpRef.current) {
+        setMarketActionMessage(`BTCUSDT catch-up stopped after ${batches} batch${batches === 1 ? '' : 'es'}.`);
+      }
     } catch (error) {
       setMarketActionMessage(error instanceof Error ? error.message : 'BTCUSDT catch-up failed.');
+    } finally {
+      setIsCatchingUp(false);
     }
   };
 
@@ -210,8 +232,8 @@ export function SystemManagementView() {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
-              <Button onClick={runCatchUp} variant="outline"><RefreshCcw className="mr-2 h-4 w-4" />Catch up</Button>
-              <Button onClick={clearData} variant="destructive"><Trash2 className="mr-2 h-4 w-4" />Clear data</Button>
+              <Button onClick={runCatchUp} variant={isCatchingUp ? 'destructive' : 'outline'}>{isCatchingUp ? <Square className="mr-2 h-4 w-4" /> : <RefreshCcw className="mr-2 h-4 w-4" />}{isCatchingUp ? 'Stop' : 'Catch up'}</Button>
+              <Button onClick={clearData} variant="destructive" disabled={isCatchingUp}><Trash2 className="mr-2 h-4 w-4" />Clear data</Button>
             </div>
             <p className="text-xs text-muted-foreground">
               Latest cached candle: {marketData?.latestTimestamp ?? 'none'} · earliest cached candle: {marketData?.earliestTimestamp ?? 'none'}
