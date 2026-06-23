@@ -222,6 +222,20 @@ def _build_public_model_id_maps(models: list[Model]) -> tuple[dict[int, int], di
     return internal_to_public, public_to_model
 
 
+def _concurrency_limit_error(queue_service):
+    if not hasattr(queue_service, "get_active_queue_snapshot"):
+        return None
+    max_running = int(get_runtime_settings().get("max_concurrent_jobs", 10))
+    snapshot = queue_service.get_active_queue_snapshot()
+    if int(snapshot.get("running_jobs") or 0) >= max_running:
+        return error_response(
+            "Maximum concurrent experiment jobs reached.",
+            409,
+            code="MAX_CONCURRENT_JOBS_REACHED",
+        )
+    return None
+
+
 @blueprint.post("")
 @blueprint.post("/")
 def create_experiment():
@@ -233,6 +247,9 @@ def create_experiment():
 
     try:
         queue_service = _build_queue_service()
+        limit_error = _concurrency_limit_error(queue_service)
+        if limit_error is not None:
+            return limit_error
         with UnitOfWork() as uow:
             latest_kline_datetime = uow.market_data.get_latest_timestamp() if uow.market_data else None
             if latest_kline_datetime is not None and latest_kline_datetime.tzinfo is None:
@@ -899,6 +916,10 @@ def retry_experiment(experiment_id: int):
             return access_control.forbidden_response("Experiment is not accessible")
         if str(experiment.status or "").lower() not in {"failed", "cancelled"}:
             return error_response("Only failed or cancelled experiments can be retried.", 409, code="EXPERIMENT_NOT_RETRYABLE")
+
+        limit_error = _concurrency_limit_error(queue_service)
+        if limit_error is not None:
+            return limit_error
 
         job_spec = JobSpecification(
             job_type="EXPERIMENT_EXECUTION",

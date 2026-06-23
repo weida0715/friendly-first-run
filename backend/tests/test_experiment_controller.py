@@ -35,9 +35,20 @@ class _FakeQueuePosition:
 
 
 class _FakeQueueService:
+    def get_active_queue_snapshot(self):
+        return {"running_jobs": 0, "queue_depth": 0, "active_jobs_total": 0, "active_jobs": []}
+
     def enqueue_job(self, spec):  # noqa: ANN001
         _ = spec
         return _FakeQueuePosition()
+
+
+class _FullQueueService:
+    def get_active_queue_snapshot(self):
+        return {"running_jobs": 10, "queue_depth": 0, "active_jobs_total": 10, "active_jobs": []}
+
+    def enqueue_job(self, spec):  # noqa: ANN001
+        raise AssertionError("enqueue should not be called when concurrency is full")
 
 
 class _UnavailableQueueService:
@@ -183,6 +194,28 @@ def test_create_experiment_returns_422_with_structured_errors() -> None:
     assert "data" in payload and "errors" in payload["data"]
     assert "name" in payload["data"]["errors"]
     assert "symbol" in payload["data"]["errors"]
+
+
+def test_create_experiment_rejects_when_concurrency_limit_reached() -> None:
+    from app.controllers import experiment_controller as module
+
+    client = _client()
+    module._build_queue_service = lambda: _FullQueueService()
+    client.post("/api/auth/register", json={
+        "name": "owner",
+        "username": "owner099",
+        "email": "owner099@example.com",
+        "password": "securepass",
+    })
+    client.post("/api/auth/login", json={
+        "email": "owner099@example.com",
+        "password": "securepass",
+    })
+
+    response = client.post("/api/experiments/", json={"name": "Blocked"})
+
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == "MAX_CONCURRENT_JOBS_REACHED"
 
 
 def test_create_experiment_persists_and_returns_created_payload() -> None:

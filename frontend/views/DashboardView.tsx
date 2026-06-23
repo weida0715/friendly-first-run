@@ -13,7 +13,7 @@ import { LoadingState } from '@/components/states/LoadingState';
 import { StatusBadge } from '@/components/status/StatusBadge';
 import { BTCUSDTPriceChart, useBTCUSDTChartData } from '@/components/charts';
 import { useAuth } from '@/lib/auth/useAuth';
-import { getModelRankings, listExperiments, listOwnedBlueprints } from '@/lib/api/client';
+import { getModelRankings, listExperiments, listOwnedBlueprints, type BTCUSDTInterval } from '@/lib/api/client';
 
 type DashboardItem = { id: string; label: string; meta?: string; status?: string };
 
@@ -39,6 +39,7 @@ const defaultData: DashboardData = {
   approvedBlueprints: 0,
   market: { price: '69,842.50', change24h: '+1.84%', status: 'active' },
 };
+const BTCUSDT_INTERVALS: BTCUSDTInterval[] = ['1m', '5m', '15m', '30m', '1h', '2h', '4h', '1d'];
 
 export function DashboardView({ data }: DashboardViewProps) {
   const router = useRouter();
@@ -47,7 +48,8 @@ export function DashboardView({ data }: DashboardViewProps) {
   const [dashboard, setDashboard] = useState<DashboardData>({ ...defaultData, ...data, market: { ...defaultData.market, ...data?.market } });
   const [loadingStats, setLoadingStats] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
-  const marketChart = useBTCUSDTChartData();
+  const [marketInterval, setMarketInterval] = useState<BTCUSDTInterval>('1m');
+  const marketChart = useBTCUSDTChartData(undefined, marketInterval);
 
   useEffect(() => {
     let active = true;
@@ -139,9 +141,22 @@ export function DashboardView({ data }: DashboardViewProps) {
         <Card className="bg-gradient-card">
           <CardHeader>
             <CardTitle>BTCUSDT Market Status</CardTitle>
-            <CardDescription>Cached BTCUSDT 1m candles from local market-data storage.</CardDescription>
+            <CardDescription>Cached BTCUSDT candles from local market-data storage.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              {BTCUSDT_INTERVALS.map((interval) => (
+                <Button
+                  key={interval}
+                  type="button"
+                  size="sm"
+                  variant={marketInterval === interval ? 'default' : 'outline'}
+                  onClick={() => setMarketInterval(interval)}
+                >
+                  {interval}
+                </Button>
+              ))}
+            </div>
             <BTCUSDTPriceChart
               data={marketChart.data}
               loading={dashboard.market.loading || marketChart.loading}

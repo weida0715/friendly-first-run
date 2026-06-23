@@ -34,8 +34,10 @@ class _FakeSettingsService:
     def __init__(self):
         self._settings = {
             "queue_job_timeout_seconds": 7200,
+            "session_timeout_minutes": 1440,
             "max_requested_permutations": 250,
-            "max_round_log_rows": 0,
+            "max_round_log_rows": 10000,
+            "max_concurrent_jobs": 10,
         }
 
     def get_settings(self):
@@ -128,12 +130,15 @@ def test_admin_can_view_and_update_system_settings() -> None:
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["data"]["settings"]["queue_job_timeout_seconds"] == 7200
+    assert payload["data"]["settings"]["session_timeout_minutes"] == 1440
 
     update = client.patch("/api/system/settings",
-                          json={"queue_job_timeout_seconds": 9000})
+                          json={"queue_job_timeout_seconds": 9000, "session_timeout_minutes": 0, "max_concurrent_jobs": 5})
     assert update.status_code == 200
-    assert update.get_json()[
-        "data"]["settings"]["queue_job_timeout_seconds"] == 9000
+    settings = update.get_json()["data"]["settings"]
+    assert settings["queue_job_timeout_seconds"] == 9000
+    assert settings["session_timeout_minutes"] == 0
+    assert settings["max_concurrent_jobs"] == 5
 
 
 def test_admin_can_view_system_events() -> None:

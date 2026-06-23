@@ -14,6 +14,7 @@ from app.controllers.system_controller import SystemController
 from app.services.access_control_service import AccessControlService
 from app.services.password_service import hash_password
 from app.services.session_service import SessionService
+from app.services.system_settings_service import get_runtime_settings
 from app.infrastructure.database.enums import UserRole
 
 blueprint = Blueprint("users", __name__)
@@ -24,8 +25,8 @@ class UserController:
 
     @staticmethod
     def _build_access_control_service() -> AccessControlService:
-        timeout_minutes = int(current_app.config.get(
-            "SESSION_TIMEOUT_MINUTES", 1440))
+        timeout_minutes = int(get_runtime_settings().get(
+            "session_timeout_minutes", current_app.config.get("SESSION_TIMEOUT_MINUTES", 1440)))
         cookie_name = str(current_app.config.get(
             "AUTH_SESSION_COOKIE_NAME", "bee_session"))
         session_backend = str(current_app.config.get("SESSION_BACKEND", "memory"))
@@ -69,9 +70,19 @@ class UserController:
         return sorted(audit, key=lambda item: item["timestamp"], reverse=True)
 
     USERNAME_PATTERN = re.compile(r"^[a-z0-9]+$")
-    MIN_USERNAME_LENGTH = 3
+    MIN_USERNAME_LENGTH = 6
     MAX_USERNAME_LENGTH = 12
     MIN_PASSWORD_LENGTH = 8
+
+    @classmethod
+    def _validate_username(cls, username: str) -> tuple[bool, str | None]:
+        if not username:
+            return False, "Username is required"
+        if len(username) < cls.MIN_USERNAME_LENGTH or len(username) > cls.MAX_USERNAME_LENGTH:
+            return False, f"Username must be between {cls.MIN_USERNAME_LENGTH} and {cls.MAX_USERNAME_LENGTH} characters"
+        if not cls.USERNAME_PATTERN.fullmatch(username):
+            return False, "Username must contain lowercase letters and numbers only"
+        return True, None
 
     @classmethod
     def _validate_create_user_payload(cls, payload: dict) -> tuple[bool, str | None]:
@@ -82,12 +93,9 @@ class UserController:
 
         if not name:
             return False, "Name is required"
-        if not username:
-            return False, "Username is required"
-        if len(username) < cls.MIN_USERNAME_LENGTH or len(username) > cls.MAX_USERNAME_LENGTH:
-            return False, f"Username must be between {cls.MIN_USERNAME_LENGTH} and {cls.MAX_USERNAME_LENGTH} characters"
-        if not cls.USERNAME_PATTERN.fullmatch(username):
-            return False, "Username must contain lowercase letters and numbers only"
+        username_ok, username_message = cls._validate_username(username)
+        if not username_ok:
+            return False, username_message
         if not email or "@" not in email:
             return False, "A valid email is required"
         if len(password) < cls.MIN_PASSWORD_LENGTH:
@@ -336,6 +344,34 @@ def update_user_role(user_id: int):
             return error_response("User not found", 404, code="USER_NOT_FOUND")
         updated = uow.users.update_role(user_id, role)
         SystemController.record_event(scope="user", action="User role updated", actor=auth, target_type="User", target_id=str(user_id), message=f"Role changed to {role} for {target.username}")
+
+    return ok_response({"data": {"user": UserController._serialize_user_summary(updated)}})
+
+
+@blueprint.patch("/<int:user_id>/username")
+def update_user_username(user_id: int):
+    access = UserController._build_access_control_service()
+    auth = access.require_authenticated(request)
+    if not hasattr(auth, "user_id"):
+        return auth
+    if not access.is_admin(auth):
+        return access.forbidden_response("Admin access required")
+
+    payload = request.get_json(silent=True) or {}
+    username = str(payload.get("username", "")).strip().lower()
+    is_valid, message = UserController._validate_username(username)
+    if not is_valid:
+        return error_response(message or "Invalid username", 400, code="INVALID_USERNAME")
+
+    with UnitOfWork() as uow:
+        target = uow.users.get_by_id(user_id)
+        if target is None:
+            return error_response("User not found", 404, code="USER_NOT_FOUND")
+        existing = uow.users.get_by_username(username)
+        if existing is not None and existing.user_id != user_id:
+            return error_response("Username is already taken", 409, code="USERNAME_EXISTS")
+        updated = uow.users.update_username(user_id, username)
+        SystemController.record_event(scope="user", action="Username updated", actor=auth, target_type="User", target_id=str(user_id), message=f"Username changed from {target.username} to {username}")
 
     return ok_response({"data": {"user": UserController._serialize_user_summary(updated)}})
 

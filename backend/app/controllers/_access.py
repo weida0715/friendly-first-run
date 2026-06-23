@@ -6,11 +6,12 @@ from flask import current_app
 
 from app.services.access_control_service import AccessControlService
 from app.services.session_service import SessionService
+from app.services.system_settings_service import get_runtime_settings
 
 
 def build_access_control() -> AccessControlService:
-    timeout_minutes = int(current_app.config.get(
-        "SESSION_TIMEOUT_MINUTES", 1440))
+    timeout_minutes = int(get_runtime_settings().get(
+        "session_timeout_minutes", current_app.config.get("SESSION_TIMEOUT_MINUTES", 1440)))
     cookie_name = str(current_app.config.get(
         "AUTH_SESSION_COOKIE_NAME", "bee_session"))
     session_backend = str(current_app.config.get("SESSION_BACKEND", "memory"))

@@ -48,7 +48,7 @@ describe('SystemManagementView', () => {
         },
       },
     });
-    getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, max_requested_permutations: 250, max_round_log_rows: 0 }, metadata: [] } });
+    getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, session_timeout_minutes: 1440, max_requested_permutations: 250, max_round_log_rows: 10000, max_concurrent_jobs: 10 }, metadata: [] } });
     getSystemEventsMock.mockResolvedValue({ ok: true, data: { items: [] } });
     getBTCUSDTMetadataMock.mockResolvedValueOnce({ ok: true, data: { latestTimestamp: '2026-01-01T00:00:00Z', earliestTimestamp: '2026-01-01T00:00:00Z' } });
 
@@ -73,7 +73,7 @@ describe('SystemManagementView', () => {
         },
       },
     });
-    getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, max_requested_permutations: 250, max_round_log_rows: 0 }, metadata: [] } });
+    getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, session_timeout_minutes: 1440, max_requested_permutations: 250, max_round_log_rows: 10000, max_concurrent_jobs: 10 }, metadata: [] } });
     getSystemEventsMock.mockResolvedValue({ ok: true, data: { items: [] } });
     getBTCUSDTMetadataMock.mockResolvedValueOnce({ ok: true, data: { latestTimestamp: null, earliestTimestamp: null } });
 
@@ -83,15 +83,17 @@ describe('SystemManagementView', () => {
 
   it('renders editable system settings controls', async () => {
     getActiveQueueSnapshotMock.mockResolvedValueOnce({ ok: true, data: { queue: { queue_depth: 0, running_jobs: 0, active_jobs_total: 0, active_jobs: [] } } });
-    getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, max_requested_permutations: 250, max_round_log_rows: 0 }, metadata: [] } });
+    getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, session_timeout_minutes: 1440, max_requested_permutations: 250, max_round_log_rows: 10000, max_concurrent_jobs: 10 }, metadata: [] } });
     getSystemEventsMock.mockResolvedValue({ ok: true, data: { items: [] } });
     getBTCUSDTMetadataMock.mockResolvedValueOnce({ ok: true, data: { latestTimestamp: null, earliestTimestamp: null } });
 
     render(<SystemManagementView />);
 
     expect(await screen.findByPlaceholderText('Queue job timeout seconds')).toBeInTheDocument();
+    expect(await screen.findByPlaceholderText('Session timeout minutes')).toBeInTheDocument();
     expect(await screen.findByPlaceholderText('Max requested permutations')).toBeInTheDocument();
     expect(await screen.findByPlaceholderText('Max round log rows')).toBeInTheDocument();
+    expect(await screen.findByPlaceholderText('Max concurrent jobs')).toBeInTheDocument();
   });
 
   it('truncates the terminal to 1000 rows and exposes the download link', async () => {
@@ -104,7 +106,7 @@ describe('SystemManagementView', () => {
       createdAt: `2026-06-19T00:00:${String(index % 60).padStart(2, '0')}Z`,
     }));
     getActiveQueueSnapshotMock.mockResolvedValueOnce({ ok: true, data: { queue: { queue_depth: 0, running_jobs: 0, active_jobs_total: 0, active_jobs: [] } } });
-    getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, max_requested_permutations: 250, max_round_log_rows: 0 }, metadata: [] } });
+    getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, session_timeout_minutes: 1440, max_requested_permutations: 250, max_round_log_rows: 10000, max_concurrent_jobs: 10 }, metadata: [] } });
     getSystemEventsMock.mockResolvedValueOnce({ ok: true, data: { items } });
     getBTCUSDTMetadataMock.mockResolvedValueOnce({ ok: true, data: { latestTimestamp: null, earliestTimestamp: null } });
 
@@ -117,7 +119,7 @@ describe('SystemManagementView', () => {
 
   it('renders BTCUSDT controls and triggers cache actions', async () => {
     getActiveQueueSnapshotMock.mockResolvedValueOnce({ ok: true, data: { queue: { queue_depth: 0, running_jobs: 0, active_jobs_total: 0, active_jobs: [] } } });
-    getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, max_requested_permutations: 250, max_round_log_rows: 0 }, metadata: [] } });
+    getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, session_timeout_minutes: 1440, max_requested_permutations: 250, max_round_log_rows: 10000, max_concurrent_jobs: 10 }, metadata: [] } });
     getSystemEventsMock.mockResolvedValue({ ok: true, data: { items: [] } });
     getBTCUSDTMetadataMock.mockResolvedValueOnce({ ok: true, data: { latestTimestamp: '2026-01-01T00:00:00Z', earliestTimestamp: '2026-01-01T00:00:00Z' } });
     catchUpBTCUSDTKlinesMock.mockResolvedValue({ ok: true, data: { state: 'running', isRunning: true, updatedRows: 0, batches: 0, hasMore: true } });
@@ -137,7 +139,7 @@ describe('SystemManagementView', () => {
 
   it('shows BTCUSDT catch-up failures', async () => {
     getActiveQueueSnapshotMock.mockResolvedValueOnce({ ok: true, data: { queue: { queue_depth: 0, running_jobs: 0, active_jobs_total: 0, active_jobs: [] } } });
-    getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, max_requested_permutations: 250, max_round_log_rows: 0 }, metadata: [] } });
+    getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, session_timeout_minutes: 1440, max_requested_permutations: 250, max_round_log_rows: 10000, max_concurrent_jobs: 10 }, metadata: [] } });
     getSystemEventsMock.mockResolvedValue({ ok: true, data: { items: [] } });
     catchUpBTCUSDTKlinesMock.mockRejectedValue(new Error('Request failed with status 504'));
 
@@ -151,7 +153,7 @@ describe('SystemManagementView', () => {
 
   it('stops BTCUSDT catch-up after the current batch', async () => {
     getActiveQueueSnapshotMock.mockResolvedValueOnce({ ok: true, data: { queue: { queue_depth: 0, running_jobs: 0, active_jobs_total: 0, active_jobs: [] } } });
-    getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, max_requested_permutations: 250, max_round_log_rows: 0 }, metadata: [] } });
+    getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, session_timeout_minutes: 1440, max_requested_permutations: 250, max_round_log_rows: 10000, max_concurrent_jobs: 10 }, metadata: [] } });
     getSystemEventsMock.mockResolvedValue({ ok: true, data: { items: [] } });
     getBTCUSDTKlinesCatchUpStatusMock.mockResolvedValueOnce({ ok: true, data: { state: 'running', isRunning: true, updatedRows: 1, batches: 1 } });
     stopBTCUSDTKlinesCatchUpMock.mockResolvedValue({ ok: true, data: { state: 'stopping', isRunning: true, updatedRows: 1, batches: 1 } });

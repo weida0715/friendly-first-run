@@ -76,7 +76,7 @@ def test_users_me_requires_auth_and_returns_profile() -> None:
 def test_users_list_staff_only_with_filters() -> None:
     client = _client()
     _register_only(client, "alice01", "alice@example.com", "Alice")
-    _register_only(client, "mod01", "mod@example.com", "Mod")
+    _register_only(client, "mod001", "mod@example.com", "Mod")
     _register_only(client, "user02", "user02@example.com", "User")
 
     cookie_user = _register_and_login(
@@ -85,7 +85,7 @@ def test_users_list_staff_only_with_filters() -> None:
     denied = client.get("/api/users", headers={"Cookie": cookie_user})
     assert denied.status_code == 403
 
-    cookie_mod = _register_and_login(client, "mod01", "mod@example.com", "Mod")
+    cookie_mod = _register_and_login(client, "mod001", "mod@example.com", "Mod")
 
     with UnitOfWork() as uow:
         mod = uow.users.get_by_email("mod@example.com")
@@ -192,8 +192,8 @@ def test_user_audit_missing_user_returns_404() -> None:
 def test_staff_management_actions_constraints() -> None:
     client = _client()
     _register_only(client, "admin01", "admin@example.com", "Admin")
-    _register_only(client, "mod01", "mod@example.com", "Mod")
-    _register_only(client, "user01", "user@example.com", "User")
+    _register_only(client, "mod001", "mod@example.com", "Mod")
+    _register_only(client, "user001", "user@example.com", "User")
 
     with UnitOfWork() as uow:
         admin = uow.users.get_by_email("admin@example.com")
@@ -205,7 +205,7 @@ def test_staff_management_actions_constraints() -> None:
         user_id = user.UserID
         mod_id = mod.UserID
 
-    cookie_mod = _register_and_login(client, "mod01", "mod@example.com", "Mod")
+    cookie_mod = _register_and_login(client, "mod001", "mod@example.com", "Mod")
 
     # Moderator can disable normal user
     r1 = client.patch(f"/api/users/{user_id}/status",
@@ -228,6 +228,10 @@ def test_staff_management_actions_constraints() -> None:
     r4 = client.patch(f"/api/users/{user_id}/role",
                       json={"role": "Moderator"}, headers={"Cookie": cookie_admin})
     assert r4.status_code == 200
+    r4b = client.patch(f"/api/users/{mod_id}/username",
+                       json={"username": "renamed"}, headers={"Cookie": cookie_admin})
+    assert r4b.status_code == 200
+    assert r4b.get_json()["data"]["user"]["username"] == "renamed"
     r5 = client.delete(f"/api/users/{user_id}",
                        headers={"Cookie": cookie_admin})
     assert r5.status_code == 200
@@ -236,7 +240,7 @@ def test_staff_management_actions_constraints() -> None:
 def test_normal_user_blocked_from_staff_mutation_endpoints() -> None:
     client = _client()
     cookie_user = _register_and_login(
-        client, "norm01", "norm@example.com", "Normal")
+        client, "norm001", "norm@example.com", "Normal")
     _register_only(client, "target01", "target@example.com", "Target")
 
     with UnitOfWork() as uow:
@@ -244,7 +248,7 @@ def test_normal_user_blocked_from_staff_mutation_endpoints() -> None:
         target_id = target.UserID
 
     assert client.post("/api/users", json={
-        "name": "x", "username": "xuser", "email": "x@example.com", "password": "securepass"
+        "name": "x", "username": "xuser1", "email": "x@example.com", "password": "securepass"
     }, headers={"Cookie": cookie_user}).status_code == 403
     assert client.patch(f"/api/users/{target_id}/status", json={
                         "status": "Disabled"}, headers={"Cookie": cookie_user}).status_code == 403
@@ -252,13 +256,38 @@ def test_normal_user_blocked_from_staff_mutation_endpoints() -> None:
                         "password": "newsecurepass"}, headers={"Cookie": cookie_user}).status_code == 403
     assert client.patch(f"/api/users/{target_id}/role", json={
                         "role": "Moderator"}, headers={"Cookie": cookie_user}).status_code == 403
+    assert client.patch(f"/api/users/{target_id}/username", json={
+                        "username": "newuser"}, headers={"Cookie": cookie_user}).status_code == 403
     assert client.delete(
         f"/api/users/{target_id}", headers={"Cookie": cookie_user}).status_code == 403
 
 
+def test_admin_username_update_rejects_duplicate_and_short_values() -> None:
+    client = _client()
+    _register_only(client, "adminx1", "adminx1@example.com", "Admin")
+    _register_only(client, "targetx", "targetx@example.com", "Target")
+    _register_only(client, "takenx1", "takenx1@example.com", "Taken")
+    with UnitOfWork() as uow:
+        admin = uow.users.get_by_email("adminx1@example.com")
+        target = uow.users.get_by_email("targetx@example.com")
+        uow.session.get(UserORM, admin.UserID).Role = "Admin"
+        uow.session.flush()
+        target_id = target.UserID
+
+    cookie_admin = _login_existing(client, "adminx1@example.com")
+
+    duplicate = client.patch(f"/api/users/{target_id}/username",
+                             json={"username": "takenx1"}, headers={"Cookie": cookie_admin})
+    assert duplicate.status_code == 409
+
+    short = client.patch(f"/api/users/{target_id}/username",
+                         json={"username": "tiny"}, headers={"Cookie": cookie_admin})
+    assert short.status_code == 400
+
+
 def test_moderator_cannot_create_elevated_roles() -> None:
     client = _client()
-    _register_only(client, "mod02", "mod02@example.com", "Mod")
+    _register_only(client, "mod002", "mod02@example.com", "Mod")
     with UnitOfWork() as uow:
         mod = uow.users.get_by_email("mod02@example.com")
         uow.session.get(UserORM, mod.UserID).Role = "Moderator"

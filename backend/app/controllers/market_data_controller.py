@@ -151,6 +151,9 @@ def _run_catch_up_until_current() -> None:
 
 
 def _extract_kline_fields(item) -> tuple[datetime, object, object, object, object, object]:
+    if isinstance(item, dict):
+        ts = _coerce_datetime(item["timestamp"])
+        return ts, item["open"], item["high"], item["low"], item["close"], item["volume"]
     if isinstance(item, tuple):
         ts = _coerce_datetime(item[0])
         return ts, item[1], item[2], item[3], item[4], item[5]
@@ -212,8 +215,11 @@ def _normalize_preview_target_params(params: dict[str, object]) -> dict[str, obj
 
 def _row_value(row: Any, key: str) -> Any:
     if isinstance(row, dict):
-        return row[key]
-    return getattr(row, key)
+        return row.get(key) if key in row else row[key.capitalize()]
+    try:
+        return getattr(row, key)
+    except AttributeError:
+        return getattr(row, key.capitalize())
 
 
 def _preview_rows_to_frame(rows: list[object]) -> pl.LazyFrame:
@@ -398,8 +404,8 @@ def get_btcusdt_klines():
     before_raw = request.args.get("before", type=str)
 
     errors: dict[str, str] = {}
-    if interval != "1m":
-        errors["interval"] = "Only 1m interval is supported"
+    if interval not in SUPPORTED_PREVIEW_INTERVALS:
+        errors["interval"] = f"interval must be one of {', '.join(SUPPORTED_PREVIEW_INTERVALS)}"
     if limit <= 0 or limit > MAX_API_KLINE_LIMIT:
         errors["limit"] = f"limit must be between 1 and {MAX_API_KLINE_LIMIT}"
     if errors:
@@ -431,10 +437,11 @@ def get_btcusdt_klines():
         except ValueError:
             return validation_error_response({"before": "Invalid ISO-8601 datetime"}, status_code=400)
 
+    raw_limit = limit if interval == "1m" else min(MAX_API_KLINE_LIMIT, limit * INTERVAL_MINUTES[interval])
     with UnitOfWork() as uow:
         if start is None or end is None:
             items = uow.market_data.list_latest_chunk(
-                limit=limit, before=before, interval="1m")
+                limit=raw_limit, before=before, interval="1m")
             has_more = False
             next_before: str | None = None
             if items:
@@ -447,17 +454,19 @@ def get_btcusdt_klines():
             items = uow.market_data.list_range_projection(
                 start=start,
                 end=end,
-                interval="1m",
-                limit=limit,
+                interval=interval,
+                limit=raw_limit,
             )
             has_more = False
             next_before = None
+    if interval != "1m":
+        items = _aggregate_preview_rows(items, interval)[-limit:]
 
     return ok_response(
         {
             "data": {
                 "symbol": "BTCUSDT",
-                "interval": "1m",
+                "interval": interval,
                 "has_more": has_more,
                 "next_before": next_before,
                 "items": [

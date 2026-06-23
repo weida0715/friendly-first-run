@@ -2,6 +2,7 @@
 
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { BaseView } from './BaseView';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -125,7 +126,7 @@ export function ModelDetailView() {
   }
 
   return (
-    <BaseView title={model ? `Model #${model.id}` : 'Model Detail'} description="Review model metrics, provenance, and metadata." actions={model ? <Button variant="outline" onClick={toggleFavorite}>{model.isFavorited ? 'Unfavorite' : 'Favorite'}</Button> : undefined}>
+    <BaseView title={model ? `Model #${model.id}` : 'Model Detail'} description="Review model metrics, provenance, and metadata." actions={model ? <div className="flex gap-2"><Button asChild><Link href={`/experiments/new?modelId=${model.id}`}>New Experiment</Link></Button><Button variant="outline" onClick={toggleFavorite}>{model.isFavorited ? 'Unfavorite' : 'Favorite'}</Button></div> : undefined}>
       {loading ? <LoadingState message="Loading model detail..." /> : !model ? <EmptyState title="Model unavailable" description="The model was not found or is not accessible." /> : (
         <div className="space-y-4">
           <Card><CardHeader><CardTitle>Metrics</CardTitle></CardHeader><CardContent><KeyValues rows={[['Sharpe', model.metrics?.sharpe], ['Accuracy', model.metrics?.accuracy], ['Precision', model.metrics?.precision], ['Recall', model.metrics?.recall], ['Max drawdown', model.metrics?.maxDrawdown], ['Win rate', model.metrics?.winRate], ['AUC', model.metrics?.auc], ['False positive rate', model.metrics?.falsePositiveRate]]} /></CardContent></Card>

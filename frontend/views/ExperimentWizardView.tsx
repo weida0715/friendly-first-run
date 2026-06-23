@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { WizardView } from './WizardView';
 import { CircleHelp, Info, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { BTCUSDTPriceChart, useBTCUSDTChartData } from '@/components/charts';
 import { TokenizedParameterInput, describeConstraint, tokensFromValue, validateParamToken, type ParameterConstraint, type TokenizedParamDefinition } from '@/components/forms/TokenizedParameterInput';
-import { ApiClientError, apiGet, createExperiment, getBlueprintMetadata, getBTCUSDTMetadata, getBTCUSDTTargetPreview, getExperimentBlueprintOptions, getSystemSettings, ExperimentBlueprintOption, type BTCUSDTTargetPreviewResponse } from '@/lib/api/client';
+import { ApiClientError, apiGet, createExperiment, getBlueprintMetadata, getBTCUSDTMetadata, getBTCUSDTTargetPreview, getExperimentBlueprintOptions, getModelDetail, getSystemSettings, ExperimentBlueprintOption, type BTCUSDTTargetPreviewResponse } from '@/lib/api/client';
 import { API_ENDPOINTS } from '@/lib/api/endpoints';
 
 type StepId =
@@ -739,6 +739,8 @@ function SplitRangeBar({
 
 export function ExperimentWizardView() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const reuseModelId = searchParams.get('modelId');
   const [options, setOptions] = useState<Array<ExperimentBlueprintOption & BlueprintConfigDetail>>([]);
   const [blueprintSearch, setBlueprintSearch] = useState('');
   const [blueprintSort, setBlueprintSort] = useState('latest');
@@ -805,6 +807,49 @@ export function ExperimentWizardView() {
     requestedPermutationCount: '',
   });
   const marketChart = useBTCUSDTChartData();
+
+  useEffect(() => {
+    if (!reuseModelId) return;
+    let active = true;
+    getModelDetail(reuseModelId)
+      .then((response) => {
+        if (!active) return;
+        const model = response.data?.model;
+        if (!model) return;
+        const parameters = model.parameters ?? {};
+        const architecture = parameters.architecture && typeof parameters.architecture === 'object' && !Array.isArray(parameters.architecture) ? parameters.architecture as Record<string, unknown> : {};
+        const target = parameters.target && typeof parameters.target === 'object' && !Array.isArray(parameters.target) ? parameters.target as Record<string, unknown> : {};
+        const indicators = parameters.indicators && typeof parameters.indicators === 'object' && !Array.isArray(parameters.indicators) ? parameters.indicators as Record<string, Record<string, unknown>> : {};
+        setSelectedBlueprintOption((prev) => prev ?? {
+          id: model.blueprint.id,
+          name: model.blueprint.name ?? `Blueprint #${model.blueprint.id}`,
+          version: model.blueprint.version ?? 1,
+          ownerId: model.owner.id,
+          ownerName: model.owner.username ?? model.owner.name ?? undefined,
+          updatedAt: model.createdAt ?? new Date().toISOString(),
+        });
+        setDraft((prev) => ({
+          ...prev,
+          name: prev.name || `Reuse Model #${model.id}`,
+          blueprintId: String(model.blueprint.id),
+          architectureOverrides: { ...prev.architectureOverrides, ...Object.fromEntries(Object.entries(architecture).map(([key, value]) => [key, String(value ?? '')])) },
+          indicatorOverrides: {
+            ...prev.indicatorOverrides,
+            ...Object.fromEntries(Object.entries(indicators).map(([name, values]) => [
+              name,
+              { ...(prev.indicatorOverrides[name] ?? {}), ...Object.fromEntries(Object.entries(values || {}).map(([key, value]) => [key, String(value ?? '')])) },
+            ])),
+          },
+          targetOverrides: { ...prev.targetOverrides, ...Object.fromEntries(Object.entries(target).map(([key, value]) => [key, String(value ?? '')])) },
+          targetParams: { ...prev.targetParams, ...Object.fromEntries(Object.entries(target).map(([key, value]) => [key, String(value ?? '')])) },
+          parameterOverrides: JSON.stringify(parameters, null, 2),
+        }));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [reuseModelId]);
 
   useEffect(() => {
     let active = true;

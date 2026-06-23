@@ -150,9 +150,13 @@ def run_worker() -> None:
     queue_name = os.getenv("QUEUE_NAME", "experiments")
 
     redis_conn = Redis.from_url(redis_url)
-    queue = Queue(name=queue_name, connection=redis_conn)
+    queues = [
+        Queue(name=f"{queue_name}_high", connection=redis_conn),
+        Queue(name=queue_name, connection=redis_conn),
+        Queue(name=f"{queue_name}_low", connection=redis_conn),
+    ]
     LOGGER.info("experiment_worker.bootstrap",
                 extra={"queue_name": queue_name})
 
-    worker = Worker([queue], connection=redis_conn)
+    worker = Worker(queues, connection=redis_conn)
     worker.work()

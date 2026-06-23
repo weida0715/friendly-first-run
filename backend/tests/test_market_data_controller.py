@@ -132,6 +132,23 @@ def test_market_data_kline_endpoint_returns_cached_items() -> None:
     assert body["data"]["items"][0]["open"] == "50000.10000000"
 
 
+def test_market_data_kline_endpoint_returns_supported_aggregated_interval() -> None:
+    client = _client()
+    _seed_candles()
+
+    response = client.get(
+        "/api/market-data/btcusdt/klines"
+        "?start=2026-01-01T00:00:00Z&end=2026-01-01T00:02:00Z&interval=5m"
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["data"]["interval"] == "5m"
+    assert len(body["data"]["items"]) == 1
+    assert body["data"]["items"][0]["open"] == "50000.10000000"
+    assert body["data"]["items"][0]["close"] == "50015.90000000"
+
+
 def test_market_data_kline_endpoint_returns_empty_items_for_empty_cache() -> None:
     client = _client()
     response = client.get(
@@ -168,7 +185,7 @@ def test_market_data_kline_endpoint_validates_params() -> None:
 
     bad_interval = client.get(
         "/api/market-data/btcusdt/klines"
-        "?start=2026-01-01T00:00:00Z&end=2026-01-01T00:02:00Z&interval=5m"
+        "?start=2026-01-01T00:00:00Z&end=2026-01-01T00:02:00Z&interval=3m"
     )
     assert bad_interval.status_code == 400
 

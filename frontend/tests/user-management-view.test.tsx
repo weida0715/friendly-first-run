@@ -24,6 +24,7 @@ jest.mock('@/lib/api/client', () => ({
   getPublicProfile: (...args: unknown[]) => getPublicProfileMock(...args),
   deleteManagedUser: jest.fn(),
   resetManagedUserPassword: jest.fn(),
+  updateManagedUsername: jest.fn(),
   updateManagedUserRole: jest.fn(),
   updateManagedUserStatus: jest.fn(),
 }));
@@ -110,6 +111,7 @@ describe('UserManagementView RBAC UI', () => {
 
     expect(await screen.findByText('Create User')).toBeInTheDocument();
     expect(screen.getByText('Reset Password')).toBeInTheDocument();
+    expect(screen.getByText('Update Username')).toBeInTheDocument();
     expect(screen.getByText('Update Role')).toBeInTheDocument();
     expect(screen.getByText('Delete')).toBeInTheDocument();
   });

@@ -25,6 +25,7 @@ import {
   resetManagedUserPassword,
   type UserAuditItem,
   type UserListItem,
+  updateManagedUsername,
   updateManagedUserRole,
   updateManagedUserStatus,
 } from '@/lib/api/client';
@@ -64,6 +65,8 @@ export function UserManagementView() {
 
   const [resetTarget, setResetTarget] = useState<UserListItem | null>(null);
   const [resetPassword, setResetPassword] = useState('');
+  const [usernameTarget, setUsernameTarget] = useState<UserListItem | null>(null);
+  const [usernameValue, setUsernameValue] = useState('');
   const [roleTarget, setRoleTarget] = useState<UserListItem | null>(null);
   const [roleValue, setRoleValue] = useState<Role>('User');
   const [auditTarget, setAuditTarget] = useState<UserListItem | null>(null);
@@ -322,6 +325,12 @@ export function UserManagementView() {
                           ) : null}
 
                           {isAdmin ? (
+                            <Button size="sm" variant="outline" onClick={() => { setUsernameTarget(u); setUsernameValue(u.username); }}>
+                              Update Username
+                            </Button>
+                          ) : null}
+
+                          {isAdmin ? (
                             <Button size="sm" variant="outline" onClick={() => { setRoleTarget(u); setRoleValue(normalizeRole(u.role)); }}>
                               Update Role
                             </Button>
@@ -376,6 +385,32 @@ export function UserManagementView() {
               }}
             >Confirm</Button>
             <Button variant="outline" onClick={() => setResetTarget(null)}>Cancel</Button>
+          </div>
+        </ConfirmDialogCard>
+      ) : null}
+
+      {usernameTarget ? (
+        <ConfirmDialogCard title={`Update Username: ${usernameTarget.username}`}>
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <Label>Username</Label>
+              <Input value={usernameValue} onChange={(e) => setUsernameValue(e.target.value.toLowerCase())} />
+            </div>
+            <Button
+              onClick={async () => {
+                try {
+                  setError(null);
+                  await updateManagedUsername(usernameTarget.id, usernameValue);
+                  setUsernameTarget(null);
+                  setUsernameValue('');
+                  await reload();
+                } catch (e) {
+                  const message = e instanceof ApiClientError ? e.message : 'Failed to update username';
+                  setError(message);
+                }
+              }}
+            >Confirm</Button>
+            <Button variant="outline" onClick={() => setUsernameTarget(null)}>Cancel</Button>
           </div>
         </ConfirmDialogCard>
       ) : null}

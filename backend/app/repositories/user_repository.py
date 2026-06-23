@@ -162,6 +162,14 @@ class UserRepository:
         self._session.flush()
         return self._to_domain(row)
 
+    def update_username(self, user_id: int, username: str) -> User | None:
+        row = self._session.get(UserORM, user_id)
+        if row is None:
+            return None
+        row.Username = username
+        self._session.flush()
+        return self._to_domain(row)
+
     def delete_by_id(self, user_id: int) -> bool:
         row = self._session.get(UserORM, user_id)
         if row is None:

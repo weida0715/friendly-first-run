@@ -7,7 +7,7 @@ from typing import Any
 
 from redis import Redis
 from redis.exceptions import RedisError
-from rq import Queue
+from rq import Queue, Retry
 from rq.command import send_stop_job_command
 from rq.exceptions import NoSuchJobError
 from rq.registry import FinishedJobRegistry, StartedJobRegistry
@@ -43,17 +43,24 @@ class RedisJobQueue(JobQueue):
         try:
             self._redis = Redis.from_url(redis_url)
             self._queue = Queue(name=queue_name, connection=self._redis)
+            self._queues = {
+                "high": Queue(name=f"{queue_name}_high", connection=self._redis),
+                "normal": self._queue,
+                "low": Queue(name=f"{queue_name}_low", connection=self._redis),
+            }
         except RedisError as exc:
             raise QueueUnavailableError(
                 "Unable to initialize Redis queue backend") from exc
 
     def enqueue(self, spec: JobSpecification) -> QueuePosition:
         try:
-            rq_job = self._queue.enqueue(
+            queue = self._queues.get(spec.priority, self._queue)
+            rq_job = queue.enqueue(
                 self._job_function_path,
                 spec.payload,
                 job_timeout=self._job_timeout_seconds,
                 result_ttl=self._result_ttl_seconds,
+                retry=Retry(max=2, interval=[30, 120]),
                 meta={
                     "job_type": spec.job_type,
                     "priority": spec.priority,
@@ -71,7 +78,7 @@ class RedisJobQueue(JobQueue):
             return QueuePosition(
                 job_id=rq_job.id,
                 position=position,
-                queue_name=self._queue_name,
+                queue_name=getattr(queue, "name", self._queue_name),
                 eta_seconds=None,
             )
         except RedisError as exc:
@@ -94,10 +101,12 @@ class RedisJobQueue(JobQueue):
 
     def remove_job_from_queue(self, job_id: str) -> bool:
         try:
-            removed = self._queue.remove(job_id, delete_job=True)
-            if removed:
-                self._delete_experiment_mapping_for_job(job_id)
-            return removed
+            for queue in self._queues.values():
+                removed = queue.remove(job_id, delete_job=True)
+                if removed:
+                    self._delete_experiment_mapping_for_job(job_id)
+                    return True
+            return False
         except NoSuchJobError:
             return False
         except RedisError as exc:
@@ -107,27 +116,29 @@ class RedisJobQueue(JobQueue):
     def get_active_jobs(self) -> list[dict[str, Any]]:
         try:
             jobs: list[dict[str, Any]] = []
-            for position, queued_job_id in enumerate(self._queue.job_ids):
-                jobs.append(
-                    {
-                        "job_id": queued_job_id,
-                        "state": "queued",
-                        "queue_name": self._queue_name,
-                        "position": position,
-                    }
-                )
+            for queue in self._queues.values():
+                for position, queued_job_id in enumerate(queue.job_ids):
+                    jobs.append(
+                        {
+                            "job_id": queued_job_id,
+                            "state": "queued",
+                            "queue_name": getattr(queue, "name", self._queue_name),
+                            "position": position,
+                        }
+                    )
 
-            started_registry = StartedJobRegistry(
-                name=self._queue_name, connection=self._redis)
-            for running_job_id in started_registry.get_job_ids():
-                jobs.append(
-                    {
-                        "job_id": running_job_id,
-                        "state": "running",
-                        "queue_name": self._queue_name,
-                        "position": None,
-                    }
-                )
+            for queue in self._queues.values():
+                started_registry = StartedJobRegistry(
+                    name=getattr(queue, "name", self._queue_name), connection=self._redis)
+                for running_job_id in started_registry.get_job_ids():
+                    jobs.append(
+                        {
+                            "job_id": running_job_id,
+                            "state": "running",
+                            "queue_name": getattr(queue, "name", self._queue_name),
+                            "position": None,
+                        }
+                    )
 
             return jobs
         except RedisError as exc:
@@ -151,17 +162,19 @@ class RedisJobQueue(JobQueue):
             if queued_position is not None:
                 return "queued"
 
-            started_registry = StartedJobRegistry(
-                name=self._queue_name, connection=self._redis)
-            if job_id in set(started_registry.get_job_ids()):
-                return "running"
+            for queue in self._queues.values():
+                started_registry = StartedJobRegistry(
+                    name=getattr(queue, "name", self._queue_name), connection=self._redis)
+                if job_id in set(started_registry.get_job_ids()):
+                    return "running"
 
-            finished_registry = FinishedJobRegistry(
-                name=self._queue_name, connection=self._redis)
-            if job_id in set(finished_registry.get_job_ids()):
-                return "finished"
+            for queue in self._queues.values():
+                finished_registry = FinishedJobRegistry(
+                    name=getattr(queue, "name", self._queue_name), connection=self._redis)
+                if job_id in set(finished_registry.get_job_ids()):
+                    return "finished"
 
-            rq_job = self._queue.fetch_job(job_id)
+            rq_job = self._fetch_job(job_id)
             if rq_job is None:
                 raise QueueJobNotFoundError(f"Queue job not found: {job_id}")
             return self._normalize_job_state(str(rq_job.get_status(refresh=True)))
@@ -171,7 +184,7 @@ class RedisJobQueue(JobQueue):
     def get_job_metadata(self, job_id: str) -> dict[str, Any]:
         """Return normalized queue job metadata for detail views."""
         try:
-            rq_job = self._queue.fetch_job(job_id)
+            rq_job = self._fetch_job(job_id)
             if rq_job is None:
                 raise QueueJobNotFoundError(f"Queue job not found: {job_id}")
 
@@ -234,11 +247,12 @@ class RedisJobQueue(JobQueue):
         return "unknown"
 
     def _resolve_queue_position(self, job_id: str) -> int | None:
-        job_ids = self._queue.job_ids
-        try:
-            return job_ids.index(job_id)
-        except ValueError:
-            return None
+        for queue in self._queues.values():
+            try:
+                return queue.job_ids.index(job_id)
+            except ValueError:
+                continue
+        return None
 
     def get_job_id_for_experiment(self, experiment_id: int) -> str | None:
         raw = self._redis.get(f"{EXPERIMENT_JOB_KEY_PREFIX}:{experiment_id}")
@@ -246,8 +260,15 @@ class RedisJobQueue(JobQueue):
             return None
         return raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
 
+    def _fetch_job(self, job_id: str):
+        for queue in self._queues.values():
+            rq_job = queue.fetch_job(job_id)
+            if rq_job is not None:
+                return rq_job
+        return None
+
     def _delete_experiment_mapping_for_job(self, job_id: str) -> None:
-        rq_job = self._queue.fetch_job(job_id)
+        rq_job = self._fetch_job(job_id)
         if rq_job is None:
             return
         payload_experiment_id = (

@@ -25,18 +25,26 @@ SYSTEM_SETTING_SPECS: dict[str, SettingSpec] = {
     "queue_job_timeout_seconds": SettingSpec(
         "queue_job_timeout_seconds", 21600, 60, 86400, "Queue job timeout seconds", "Maximum runtime before RQ terminates a job."
     ),
+    "session_timeout_minutes": SettingSpec(
+        "session_timeout_minutes", 1440, 0, 1440, "Session timeout minutes", "Authenticated session lifetime; 0 keeps sessions until logout."
+    ),
     "max_requested_permutations": SettingSpec(
         "max_requested_permutations", 500, 1, 100000, "Max requested permutations", "Upper bound for experiment model permutations."
     ),
     "max_round_log_rows": SettingSpec(
-        "max_round_log_rows", 0, 0, 1000000, "Max round log rows", "Per-model round rows to persist; 0 disables heavy per-candle logs."
+        "max_round_log_rows", 10000, 0, 1000000, "Max round log rows", "Per-model round rows to persist; 0 disables heavy per-candle logs."
+    ),
+    "max_concurrent_jobs": SettingSpec(
+        "max_concurrent_jobs", 10, 1, 10, "Max concurrent jobs", "Maximum running experiment jobs accepted before new submissions wait."
     ),
 }
 
 ENV_NAMES = {
     "queue_job_timeout_seconds": "QUEUE_JOB_TIMEOUT_SECONDS",
+    "session_timeout_minutes": "SESSION_TIMEOUT_MINUTES",
     "max_requested_permutations": "MAX_REQUESTED_PERMUTATIONS",
     "max_round_log_rows": "MAX_ROUND_LOG_ROWS",
+    "max_concurrent_jobs": "MAX_CONCURRENT_JOBS",
 }
 
 

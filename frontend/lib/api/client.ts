@@ -322,6 +322,13 @@ export function updateManagedUserRole(
   return apiPatch<UserProfileResponse>(API_ENDPOINTS.users.role(userId), { role });
 }
 
+export function updateManagedUsername(
+  userId: string | number,
+  username: string,
+): Promise<UserProfileResponse> {
+  return apiPatch<UserProfileResponse>(API_ENDPOINTS.users.username(userId), { username });
+}
+
 export function deleteManagedUser(userId: string | number): Promise<{ ok: boolean; data?: { deleted?: boolean } }> {
   return apiDelete<{ ok: boolean; data?: { deleted?: boolean } }>(API_ENDPOINTS.users.delete(userId));
 }
@@ -910,11 +917,13 @@ export interface BTCUSDTKlineChartItem {
   volume: string;
 }
 
+export type BTCUSDTInterval = '1m' | '5m' | '15m' | '30m' | '1h' | '2h' | '4h' | '1d';
+
 export interface BTCUSDTKlineChartResponse {
   ok: boolean;
   data?: {
     symbol: 'BTCUSDT';
-    interval: '1m';
+    interval: BTCUSDTInterval;
     has_more?: boolean;
     next_before?: string | null;
     items: BTCUSDTKlineChartItem[];
@@ -969,8 +978,6 @@ export function stopBTCUSDTKlinesCatchUp(): Promise<BTCUSDTAdminActionResponse> 
 export function clearBTCUSDTKlines(): Promise<BTCUSDTAdminActionResponse> {
   return apiDelete<BTCUSDTAdminActionResponse>(API_ENDPOINTS.marketData.btcusdtClearKlines);
 }
-
-export type BTCUSDTInterval = '1m' | '5m' | '15m' | '30m' | '1h' | '2h' | '4h' | '1d';
 
 export function getBTCUSDTKlines(params: {
   start?: string;

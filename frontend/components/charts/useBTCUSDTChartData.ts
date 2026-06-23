@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { ApiClientError, getBTCUSDTKlines } from "@/lib/api/client";
+import { ApiClientError, getBTCUSDTKlines, type BTCUSDTInterval } from "@/lib/api/client";
 
 import type { BTCUSDTChartPoint } from "./BTCUSDTPriceChart";
 import { normalizeAscUnique, subscribeBTCUSDTCacheUpdates } from "./utils";
@@ -19,7 +19,7 @@ export function getDefaultBTCUSDTRange(now = new Date()): BTCUSDTChartRange {
   return { start: start.toISOString(), end: end.toISOString() };
 }
 
-export function useBTCUSDTChartData(range?: BTCUSDTChartRange) {
+export function useBTCUSDTChartData(range?: BTCUSDTChartRange, interval: BTCUSDTInterval = "1m") {
   const resolvedRange = useMemo(() => range, [range]);
   const [data, setData] = useState<BTCUSDTChartPoint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,7 +47,7 @@ export function useBTCUSDTChartData(range?: BTCUSDTChartRange) {
         start: resolvedRange?.start,
         end: resolvedRange?.end,
         limit: KLINE_FETCH_LIMIT,
-        interval: "1m",
+        interval,
       });
       if (!mountedRef.current || loadRangeRequestRef.current !== requestId) return;
       setData(normalizeAscUnique(response.data?.items ?? []));
@@ -70,7 +70,7 @@ export function useBTCUSDTChartData(range?: BTCUSDTChartRange) {
         setLoadingOlder(false);
       }
     }
-  }, [resolvedRange?.end, resolvedRange?.start]);
+  }, [interval, resolvedRange?.end, resolvedRange?.start]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -105,7 +105,7 @@ export function useBTCUSDTChartData(range?: BTCUSDTChartRange) {
       const response = await getBTCUSDTKlines({
         before: oldest,
         limit: KLINE_FETCH_LIMIT,
-        interval: "1m",
+        interval,
       });
       const older = response.data?.items ?? [];
       if (older.length > 0) {
@@ -118,7 +118,7 @@ export function useBTCUSDTChartData(range?: BTCUSDTChartRange) {
     } finally {
       setLoadingOlder(false);
     }
-  }, []);
+  }, [interval]);
 
   return { data, loading, loadingOlder, hasMoreOlder, loadOlder, error, range: resolvedRange };
 }

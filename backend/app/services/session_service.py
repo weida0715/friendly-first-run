@@ -17,7 +17,7 @@ class SessionRecord:
     user_id: int
     role: str
     created_at: datetime
-    expires_at: datetime
+    expires_at: datetime | None
 
 
 class SessionService:
@@ -41,7 +41,7 @@ class SessionService:
         expired_session_ids = [
             session_id
             for session_id, record in cls._store.items()
-            if record.expires_at <= now
+            if record.expires_at is not None and record.expires_at <= now
         ]
         for session_id in expired_session_ids:
             cls._store.pop(session_id, None)
@@ -54,18 +54,22 @@ class SessionService:
             user_id=user_id,
             role=role,
             created_at=now,
-            expires_at=now + timedelta(minutes=self._timeout_minutes),
+            expires_at=None if self._timeout_minutes == 0 else now + timedelta(minutes=self._timeout_minutes),
         )
 
         if self._backend == "redis" and self._redis is not None:
-            ttl = max(60, self._timeout_minutes * 60)
-            self._redis.setex(self._key(session_id), ttl, json.dumps({
+            payload = json.dumps({
                 "session_id": record.session_id,
                 "user_id": record.user_id,
                 "role": record.role,
                 "created_at": record.created_at.isoformat(),
-                "expires_at": record.expires_at.isoformat(),
-            }))
+                "expires_at": record.expires_at.isoformat() if record.expires_at else None,
+            })
+            if self._timeout_minutes == 0:
+                self._redis.set(self._key(session_id), payload)
+            else:
+                ttl = max(60, self._timeout_minutes * 60)
+                self._redis.setex(self._key(session_id), ttl, payload)
         else:
             with self._lock:
                 self._purge_expired_locked(now)
@@ -85,7 +89,7 @@ class SessionService:
                     user_id=int(payload["user_id"]),
                     role=str(payload["role"]),
                     created_at=datetime.fromisoformat(str(payload["created_at"])),
-                    expires_at=datetime.fromisoformat(str(payload["expires_at"])),
+                    expires_at=datetime.fromisoformat(str(payload["expires_at"])) if payload.get("expires_at") else None,
                 )
             except Exception:
                 return None
@@ -93,7 +97,7 @@ class SessionService:
             record = self._store.get(session_id)
             if record is None:
                 return None
-            if record.expires_at <= datetime.now(timezone.utc):
+            if record.expires_at is not None and record.expires_at <= datetime.now(timezone.utc):
                 del self._store[session_id]
                 return None
             return record

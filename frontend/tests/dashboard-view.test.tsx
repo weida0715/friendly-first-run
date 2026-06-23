@@ -1,10 +1,18 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { DashboardView } from '@/views/DashboardView';
 
 const getBTCUSDTKlinesMock = jest.fn();
 const listExperimentsMock = jest.fn();
 const getModelRankingsMock = jest.fn();
 const listOwnedBlueprintsMock = jest.fn();
+const mockUseBTCUSDTChartData = jest.fn(() => ({
+  data: [],
+  loading: false,
+  loadingOlder: false,
+  hasMoreOlder: false,
+  loadOlder: jest.fn(),
+  error: null,
+}));
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ replace: jest.fn() }),
@@ -27,14 +35,7 @@ jest.mock('@/lib/api/client', () => ({
 
 jest.mock('@/components/charts', () => ({
   BTCUSDTPriceChart: () => <div>BTCUSDT Chart Mock</div>,
-  useBTCUSDTChartData: () => ({
-    data: [],
-    loading: false,
-    loadingOlder: false,
-    hasMoreOlder: false,
-    loadOlder: jest.fn(),
-    error: null,
-  }),
+  useBTCUSDTChartData: (...args: unknown[]) => mockUseBTCUSDTChartData(...args),
 }));
 
 describe('DashboardView', () => {
@@ -42,6 +43,7 @@ describe('DashboardView', () => {
     listExperimentsMock.mockResolvedValue({ data: { items: [{}, {}, {}] } });
     getModelRankingsMock.mockResolvedValue({ data: { total: 1204 } });
     listOwnedBlueprintsMock.mockResolvedValue({ data: { items: [{}, {}] } });
+    mockUseBTCUSDTChartData.mockClear();
   });
 
   it('renders all required dashboard cards and quick action links', async () => {
@@ -56,6 +58,8 @@ describe('DashboardView', () => {
     expect(screen.getByText('BTCUSDT Chart Mock')).toBeInTheDocument();
     expect(screen.getByText('Quick Actions')).toBeInTheDocument();
     expect(screen.getByText('Backend Health Widget')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '1m' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '5m' })).toBeInTheDocument();
 
     expect(screen.getByRole('link', { name: /Create Experiment/i })).toHaveAttribute('href', '/experiments/new');
     expect(screen.getByRole('link', { name: /Browse Experiments/i })).toHaveAttribute('href', '/experiments');
@@ -63,6 +67,15 @@ describe('DashboardView', () => {
     expect(screen.getByRole('link', { name: /View Rankings/i })).toHaveAttribute('href', '/models');
     expect(screen.getByRole('link', { name: /Open Blueprints/i })).toHaveAttribute('href', '/blueprints');
     expect(screen.getByRole('link', { name: 'Open Jobs' })).toHaveAttribute('href', '/jobs');
+  });
+
+  it('passes the selected BTCUSDT interval into the chart data hook', async () => {
+    render(<DashboardView />);
+
+    await waitFor(() => expect(mockUseBTCUSDTChartData).toHaveBeenCalledWith(undefined, '1m'));
+    fireEvent.click(screen.getByRole('button', { name: '1h' }));
+
+    await waitFor(() => expect(mockUseBTCUSDTChartData).toHaveBeenCalledWith(undefined, '1h'));
   });
 
   it('renders loading state and live stat fallbacks from widget props', async () => {

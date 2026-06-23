@@ -63,7 +63,7 @@ def test_user_repository_search_and_count_filters() -> None:
     repo.add(
         User(
             user_id=None,
-            username="mod01",
+            username="mod001",
             email="mod@example.com",
             password_hash="x" * 60,
             name="Mod User",
@@ -99,7 +99,7 @@ def test_user_repository_search_and_count_filters() -> None:
 
     mods = repo.search_users(role="Moderator")
     assert len(mods) == 1
-    assert mods[0].Username == "mod01"
+    assert mods[0].Username == "mod001"
 
 
 def test_user_repository_update_status_and_role_use_enums() -> None:

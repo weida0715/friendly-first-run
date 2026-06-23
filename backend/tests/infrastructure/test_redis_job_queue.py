@@ -31,13 +31,16 @@ class _FakeRQJob:
 
 class _FakeQueue:
     def __init__(self, should_fail_enqueue: bool = False) -> None:
+        self.name = "experiments"
         self.job_ids: list[str] = []
         self._jobs: dict[str, _FakeRQJob] = {}
         self._should_fail_enqueue = should_fail_enqueue
+        self.last_enqueue_kwargs = {}
 
     def enqueue(self, func_path: str, payload: dict, **kwargs):  # noqa: ANN001
         if self._should_fail_enqueue:
             raise RedisError("boom")
+        self.last_enqueue_kwargs = kwargs
         job = _FakeRQJob(f"job-{len(self.job_ids)+1}")
         self.job_ids.append(job.id)
         self._jobs[job.id] = job
@@ -110,6 +113,7 @@ def test_enqueue_returns_queue_position_snapshot(monkeypatch: pytest.MonkeyPatch
     assert position.position == 0
     assert position.queue_name == "experiments"
     assert queue.get_job_id_for_experiment(1) == "job-1"
+    assert queue._queue.last_enqueue_kwargs["retry"].max == 2
 
 
 def test_enqueue_maps_redis_error_to_queue_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -193,6 +193,7 @@ describe('model views', () => {
     expect(screen.getByText('Architecture')).toBeInTheDocument();
     expect(screen.getByText('ridge')).toBeInTheDocument();
     expect(screen.getByText('Backtest Metrics')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'New Experiment' })).toHaveAttribute('href', '/experiments/new?modelId=42');
     expect(screen.getByText('Total Return')).toBeInTheDocument();
     expect(screen.getByText('Classification Metrics')).toBeInTheDocument();
     expect(screen.queryByText('[object Object]')).not.toBeInTheDocument();

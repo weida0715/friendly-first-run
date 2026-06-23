@@ -98,6 +98,20 @@ def test_register_rejects_invalid_username() -> None:
     assert response.status_code == 400
 
 
+def test_register_rejects_short_username() -> None:
+    client = _client()
+    response = client.post(
+        "/api/auth/register",
+        json={
+            "name": "Alice",
+            "username": "short",
+            "email": "alice@example.com",
+            "password": "securepass",
+        },
+    )
+    assert response.status_code == 400
+
+
 def test_login_success_sets_session_cookie() -> None:
     client = _client()
     client.post(
@@ -121,6 +135,30 @@ def test_login_success_sets_session_cookie() -> None:
     assert body["data"]["user"]["username"] == "alice01"
     assert "Set-Cookie" in response.headers
     assert "bee_session=" in response.headers["Set-Cookie"]
+
+
+def test_login_with_zero_session_timeout_omits_max_age(monkeypatch) -> None:
+    monkeypatch.setenv("SESSION_TIMEOUT_MINUTES", "0")
+    client = _client()
+    client.post(
+        "/api/auth/register",
+        json={
+            "name": "Alice",
+            "username": "alice01",
+            "email": "alice@example.com",
+            "password": "securepass",
+        },
+    )
+
+    response = client.post(
+        "/api/auth/login",
+        json={"email": "alice@example.com", "password": "securepass"},
+    )
+
+    assert response.status_code == 200
+    cookie = response.headers["Set-Cookie"]
+    assert "bee_session=" in cookie
+    assert "Max-Age=" not in cookie
 
 
 def test_login_rejects_invalid_credentials() -> None:

@@ -50,8 +50,10 @@ export function SystemManagementView() {
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
   const [settings, setSettings] = useState<Record<string, number>>({});
   const [timeoutSeconds, setTimeoutSeconds] = useState('');
+  const [sessionTimeoutMinutes, setSessionTimeoutMinutes] = useState('');
   const [maxPermutations, setMaxPermutations] = useState('');
   const [maxRoundLogs, setMaxRoundLogs] = useState('');
+  const [maxConcurrentJobs, setMaxConcurrentJobs] = useState('');
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [marketData, setMarketData] = useState<BTCUSDTMetadata | null>(null);
   const [marketActionMessage, setMarketActionMessage] = useState<string | null>(null);
@@ -93,8 +95,10 @@ export function SystemManagementView() {
       const nextSettings = settingsResponse.value?.data?.settings ?? {};
       setSettings(nextSettings);
       setTimeoutSeconds(String(nextSettings.queue_job_timeout_seconds ?? 21600));
+      setSessionTimeoutMinutes(String(nextSettings.session_timeout_minutes ?? 1440));
       setMaxPermutations(String(nextSettings.max_requested_permutations ?? 500));
-      setMaxRoundLogs(String(nextSettings.max_round_log_rows ?? 0));
+      setMaxRoundLogs(String(nextSettings.max_round_log_rows ?? 10000));
+      setMaxConcurrentJobs(String(nextSettings.max_concurrent_jobs ?? 10));
     }
     if (eventsResponse.status === 'fulfilled') {
       setEvents((eventsResponse.value?.data?.items ?? []) as Array<Record<string, unknown>>);
@@ -179,14 +183,18 @@ export function SystemManagementView() {
     setSaveMessage(null);
     const response = await updateSystemSettings({
       queue_job_timeout_seconds: Number(timeoutSeconds),
+      session_timeout_minutes: Number(sessionTimeoutMinutes),
       max_requested_permutations: Number(maxPermutations),
       max_round_log_rows: Number(maxRoundLogs),
+      max_concurrent_jobs: Number(maxConcurrentJobs),
     });
     const nextSettings = response.data?.settings ?? {};
     setSettings(nextSettings);
     setTimeoutSeconds(String(nextSettings.queue_job_timeout_seconds ?? 21600));
+    setSessionTimeoutMinutes(String(nextSettings.session_timeout_minutes ?? 1440));
     setMaxPermutations(String(nextSettings.max_requested_permutations ?? 500));
-    setMaxRoundLogs(String(nextSettings.max_round_log_rows ?? 0));
+    setMaxRoundLogs(String(nextSettings.max_round_log_rows ?? 10000));
+    setMaxConcurrentJobs(String(nextSettings.max_concurrent_jobs ?? 10));
     setSaveMessage('System settings saved.');
   };
 
@@ -233,18 +241,20 @@ export function SystemManagementView() {
         </div>
 
         <Card className="bg-gradient-card">
-          <CardHeader><CardTitle>Operational Controls</CardTitle><CardDescription>Admin-managed runtime limits for queue timeout, permutations, and logging.</CardDescription></CardHeader>
+          <CardHeader><CardTitle>Operational Controls</CardTitle><CardDescription>Admin-managed runtime limits for sessions, queue, permutations, and logging.</CardDescription></CardHeader>
           <CardContent className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <Input value={timeoutSeconds} onChange={(event) => setTimeoutSeconds(event.target.value)} placeholder="Queue job timeout seconds" />
+              <Input value={sessionTimeoutMinutes} onChange={(event) => setSessionTimeoutMinutes(event.target.value)} placeholder="Session timeout minutes" />
               <Input value={maxPermutations} onChange={(event) => setMaxPermutations(event.target.value)} placeholder="Max requested permutations" />
               <Input value={maxRoundLogs} onChange={(event) => setMaxRoundLogs(event.target.value)} placeholder="Max round log rows" />
+              <Input value={maxConcurrentJobs} onChange={(event) => setMaxConcurrentJobs(event.target.value)} placeholder="Max concurrent jobs" />
             </div>
             <div className="flex items-center gap-2">
               <Button onClick={saveSettings}>Save system settings</Button>
               {saveMessage ? <span className="text-sm text-muted-foreground">{saveMessage}</span> : null}
             </div>
-            <p className="text-xs text-muted-foreground">Current timeout: {settings.queue_job_timeout_seconds ?? 21600}s · permutation cap: {settings.max_requested_permutations ?? 500} · round logs: {settings.max_round_log_rows ?? 0}</p>
+            <p className="text-xs text-muted-foreground">Queue timeout: {settings.queue_job_timeout_seconds ?? 21600}s · session timeout: {settings.session_timeout_minutes ?? 1440}m · permutation cap: {settings.max_requested_permutations ?? 500} · round logs: {settings.max_round_log_rows ?? 10000} · concurrent jobs: {settings.max_concurrent_jobs ?? 10}</p>
           </CardContent>
         </Card>
 

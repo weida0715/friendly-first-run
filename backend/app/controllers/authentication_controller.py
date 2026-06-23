@@ -16,11 +16,12 @@ from app.controllers.system_controller import SystemController
 from app.services.access_control_service import AccessControlService
 from app.services.password_service import hash_password, verify_password
 from app.services.session_service import SessionService
+from app.services.system_settings_service import get_runtime_settings
 
 blueprint = Blueprint("authentication", __name__)
 
 USERNAME_PATTERN = re.compile(r"^[a-z0-9]+$")
-MIN_USERNAME_LENGTH = 3
+MIN_USERNAME_LENGTH = 6
 MAX_USERNAME_LENGTH = 12
 MIN_PASSWORD_LENGTH = 8
 SESSION_COOKIE_NAME = "bee_session"
@@ -31,8 +32,8 @@ class AuthenticationController:
 
     @staticmethod
     def _get_session_config() -> dict[str, object]:
-        timeout_minutes = int(current_app.config.get(
-            "SESSION_TIMEOUT_MINUTES", 1440))
+        timeout_minutes = int(get_runtime_settings().get(
+            "session_timeout_minutes", current_app.config.get("SESSION_TIMEOUT_MINUTES", 1440)))
         cookie_name = str(current_app.config.get(
             "AUTH_SESSION_COOKIE_NAME", SESSION_COOKIE_NAME))
         cookie_samesite = str(current_app.config.get(
@@ -207,7 +208,7 @@ def login():
     response.set_cookie(
         key=cookie_name,
         value=session_record.session_id,
-        max_age=timeout_minutes * 60,
+        max_age=None if timeout_minutes == 0 else timeout_minutes * 60,
         httponly=True,
         secure=cookie_secure,
         samesite=cookie_samesite,

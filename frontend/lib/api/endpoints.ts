@@ -23,6 +23,7 @@ export const API_ENDPOINTS = {
     me: '/users/me',
     byId: (userId: string | number) => `/users/${userId}`,
     audit: (userId: string | number) => `/users/${userId}/audit`,
+    username: (userId: string | number) => `/users/${userId}/username`,
     status: (userId: string | number) => `/users/${userId}/status`,
     password: (userId: string | number) => `/users/${userId}/password`,
     role: (userId: string | number) => `/users/${userId}/role`,

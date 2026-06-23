@@ -10,6 +10,8 @@ const apiGetMock = jest.fn();
 const pushMock = jest.fn();
 const getBlueprintMetadataMock = jest.fn();
 const getSystemSettingsMock = jest.fn();
+const getModelDetailMock = jest.fn();
+let searchParamsMock = new URLSearchParams('');
 
 jest.mock('@/lib/api/client', () => ({
   getExperimentBlueprintOptions: (...args: unknown[]) => optionsMock(...args),
@@ -18,6 +20,7 @@ jest.mock('@/lib/api/client', () => ({
   getBTCUSDTMetadata: jest.fn().mockResolvedValue({ ok: true, data: { earliestTimestamp: '2026-01-01T00:00:00Z', latestTimestamp: '2026-01-10T00:00:00Z' } }),
   getBlueprintMetadata: (...args: unknown[]) => getBlueprintMetadataMock(...args),
   getSystemSettings: (...args: unknown[]) => getSystemSettingsMock(...args),
+  getModelDetail: (...args: unknown[]) => getModelDetailMock(...args),
   createExperiment: (...args: unknown[]) => createExperimentMock(...args),
   apiGet: (...args: unknown[]) => apiGetMock(...args),
   ApiClientError: class ApiClientError extends Error {
@@ -33,6 +36,7 @@ jest.mock('@/lib/api/client', () => ({
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
+  useSearchParams: () => searchParamsMock,
 }));
 
 jest.mock('@/components/charts', () => ({
@@ -43,9 +47,11 @@ jest.mock('@/components/charts', () => ({
 describe('ExperimentWizardView', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    searchParamsMock = new URLSearchParams('');
     klinesMock.mockResolvedValue({ ok: true, data: { symbol: 'BTCUSDT', interval: '1m', items: [] } });
     createExperimentMock.mockResolvedValue({ ok: true, data: { experiment: { id: 101 } } });
-    getSystemSettingsMock.mockResolvedValue({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, max_requested_permutations: 500, max_round_log_rows: 0 } } });
+    getSystemSettingsMock.mockResolvedValue({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, max_requested_permutations: 500, max_round_log_rows: 10000 } } });
+    getModelDetailMock.mockResolvedValue({ ok: true, data: { model: null } });
     getBlueprintMetadataMock.mockResolvedValue({ ok: true, data: { architectures: [{ name: 'logistic_regressor_arc', displayName: 'Logistic Regressor', parameterConstraints: { C: { default: 1, type: 'number', min: 0.0001, max: 1000 }, max_iter: { default: 200, type: 'integer', min: 50, max: 5000 } } }], targets: [{ name: 'forward_return', defaultValues: { lookahead_period: 1, return_threshold: 0 }, parameterConstraints: { lookahead_period: { type: 'integer', default: 1, min: 1, max: 1440 }, return_threshold: { type: 'number', default: 0, min: -1, max: 1 } }, binaryLabelRule: '1 when close[t+lookahead] / close[t] - 1 > return_threshold, otherwise 0' }, { name: 'roc_lookahead', defaultValues: { lookahead_period: 1, roc_threshold: 0 }, parameterConstraints: { lookahead_period: { type: 'integer', default: 1, min: 1, max: 1440 }, roc_threshold: { type: 'number', default: 0, min: -1, max: 1 } }, binaryLabelRule: '1 when (close[t+lookahead] - close[t]) / close[t] > roc_threshold, otherwise 0' }, { name: 'quantile_flag', defaultValues: { roc_period: 4, q: 0.5, lookahead_period: 1 }, parameterConstraints: { roc_period: { type: 'integer', default: 4, min: 1, max: 1440 }, q: { type: 'number', default: 0.5, min: 0, max: 1 }, lookahead_period: { type: 'integer', default: 1, min: 1, max: 1440 } }, binaryLabelRule: '1 when ROC over roc_period exceeds the fitted (1-q) quantile cutoff, shifted by lookahead_period bars, otherwise 0' }, { name: 'candle_direction', defaultValues: { lookahead_period: 1 }, parameterConstraints: { lookahead_period: { type: 'integer', default: 1, min: 1, max: 1440 } }, binaryLabelRule: '1 when close[t+lookahead] > open[t+lookahead], otherwise 0' }] } });
     apiGetMock.mockResolvedValue({ ok: true, data: { blueprint: { architecture: { name: 'logistic_regressor_arc', parameters: { C: 1, max_iter: 200, class_weight: null }, parameterConstraints: { class_weight: { type: 'string', allowed_values: [null, 'balanced'] } } }, indicators: { definitions: [{ name: 'RSI', parameters: { timeperiod: 14 } }] } } } });
     targetPreviewMock.mockResolvedValue({ ok: true, data: { symbol: 'BTCUSDT', interval: '1m', strategy: { name: 'forward_return', binaryLabelRule: '1 when close[t+lookahead] / close[t] - 1 > return_threshold, otherwise 0', defaultValues: { lookahead_period: 1, return_threshold: 0 }, parameters: { lookahead_period: 1, return_threshold: 0 } }, range: { start: '2026-01-01T00:00:00Z', end: '2026-01-01T00:03:00Z', candles: 4 }, rows: [{ time: 1, timestamp: '2026-01-01T00:00:00Z', open: '100.00000000', high: '101.00000000', low: '99.00000000', close: '100.00000000', volume: '1.00000000', target: 1, candleDirection: 1, actualDirectionTarget: 1 }, { time: 2, timestamp: '2026-01-01T00:01:00Z', open: '100.00000000', high: '111.00000000', low: '99.00000000', close: '110.00000000', volume: '1.00000000', target: 0, candleDirection: -1, actualDirectionTarget: 0 }], summary: { rowCount: 2, labeledCount: 2, positiveCount: 1, negativeCount: 1, unlabeledCount: 0, positiveRatePct: 50, actualPositiveRatePct: 50, actualPositiveCount: 1, actualNegativeCount: 1, directionUpCount: 1, directionDownCount: 1, directionFlatCount: 0, warmupNullCount: 0, tailNullCount: 0, lookaheadPeriod: 1, confusion: { tp_count: 1, fp_count: 0, tn_count: 1, fn_count: 0, precision_pct: 100, recall_pct: 100, f1_score_pct: 100, accuracy_pct: 100, pred_pos_rate_pct: 50, actual_pos_rate_pct: 50, tp_mean_return_pct: 10, fp_mean_return_pct: null, tn_mean_return_pct: -4.5, fn_mean_return_pct: null } } } });
@@ -74,6 +80,32 @@ describe('ExperimentWizardView', () => {
     expect(screen.getByText('Review')).toBeInTheDocument();
     expect(screen.getByText('Submit')).toBeInTheDocument();
     expect(screen.queryByText('Summary')).not.toBeInTheDocument();
+  });
+
+  it('prefills a new experiment from a reused model query parameter', async () => {
+    searchParamsMock = new URLSearchParams('modelId=77');
+    optionsMock.mockResolvedValue({ ok: true, data: { items: [] } });
+    getModelDetailMock.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        model: {
+          id: 77,
+          blueprint: { id: 5, name: 'Reusable Blueprint', version: 2 },
+          owner: { id: 8, username: 'owner' },
+          createdAt: '2026-01-01T00:00:00Z',
+          parameters: {
+            architecture: { C: 2 },
+            target: { lookahead_period: 6 },
+            indicators: { RSI: { timeperiod: 21 } },
+          },
+        },
+      },
+    });
+
+    render(<ExperimentWizardView />);
+
+    await waitFor(() => expect(getModelDetailMock).toHaveBeenCalledWith('77'));
+    expect(screen.getByLabelText('Experiment Name')).toHaveValue('Reuse Model #77');
   });
 
   it('normalizes none-like architecture overrides before submit', async () => {
