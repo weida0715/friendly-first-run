@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { RefreshCcw, Square, Trash2 } from 'lucide-react';
 import { BaseView } from './BaseView';
 import { Button } from '@/components/ui/button';
@@ -12,10 +12,13 @@ import {
   clearBTCUSDTKlines,
   getActiveQueueSnapshot,
   getBTCUSDTMetadata,
+  getBTCUSDTKlinesCatchUpStatus,
   getSystemEvents,
   getSystemEventsDownloadUrl,
   getSystemSettings,
+  stopBTCUSDTKlinesCatchUp,
   updateSystemSettings,
+  type BTCUSDTAdminActionResponse,
 } from '@/lib/api/client';
 import { notifyBTCUSDTCacheUpdated } from '@/components/charts/utils';
 
@@ -41,6 +44,7 @@ type BTCUSDTMetadata = {
 const SYSTEM_TERMINAL_REFRESH_MS = 5000;
 const SYSTEM_TERMINAL_FETCH_LIMIT = 5000;
 const SYSTEM_TERMINAL_VISIBLE_LIMIT = 5000;
+const CATCH_UP_STATUS_REFRESH_MS = 2000;
 
 export function SystemManagementView() {
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
@@ -54,14 +58,33 @@ export function SystemManagementView() {
   const [isCatchingUp, setIsCatchingUp] = useState(false);
   const [events, setEvents] = useState<Array<Record<string, unknown>>>([]);
   const [refreshTick, setRefreshTick] = useState(0);
-  const stopCatchUpRef = useRef(false);
+
+  const applyCatchUpStatus = (response: BTCUSDTAdminActionResponse) => {
+    const status = response.data;
+    if (!status) return;
+    const rows = status.updatedRows ?? 0;
+    const batches = status.batches ?? 0;
+    setIsCatchingUp(Boolean(status.isRunning));
+    if (status.state === 'running') {
+      setMarketActionMessage(`BTCUSDT catch-up running: ${rows} rows across ${batches} batch${batches === 1 ? '' : 'es'}.`);
+    } else if (status.state === 'stopping') {
+      setMarketActionMessage('Stopping BTCUSDT catch-up after the current batch.');
+    } else if (status.state === 'stopped') {
+      setMarketActionMessage(`BTCUSDT catch-up stopped after ${batches} batch${batches === 1 ? '' : 'es'}.`);
+    } else if (status.state === 'completed') {
+      setMarketActionMessage(`BTCUSDT catch-up completed: ${rows} rows across ${batches} batch${batches === 1 ? '' : 'es'}.`);
+    } else if (status.state === 'error') {
+      setMarketActionMessage(status.error ?? 'BTCUSDT catch-up failed.');
+    }
+  };
 
   const loadAdminSnapshot = async () => {
-    const [queueResponse, settingsResponse, eventsResponse, metadataResponse] = await Promise.allSettled([
+    const [queueResponse, settingsResponse, eventsResponse, metadataResponse, catchUpStatusResponse] = await Promise.allSettled([
       getActiveQueueSnapshot(),
       getSystemSettings(),
       getSystemEvents(undefined, SYSTEM_TERMINAL_FETCH_LIMIT),
       getBTCUSDTMetadata(),
+      getBTCUSDTKlinesCatchUpStatus(),
     ]);
     if (queueResponse.status === 'fulfilled') {
       setSnapshot((queueResponse.value?.data?.queue as QueueSnapshot | undefined) ?? null);
@@ -79,6 +102,9 @@ export function SystemManagementView() {
     if (metadataResponse.status === 'fulfilled') {
       setMarketData(metadataResponse.value?.data ?? null);
     }
+    if (catchUpStatusResponse.status === 'fulfilled') {
+      applyCatchUpStatus(catchUpStatusResponse.value);
+    }
   };
 
   useEffect(() => {
@@ -91,6 +117,21 @@ export function SystemManagementView() {
     }, SYSTEM_TERMINAL_REFRESH_MS);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!isCatchingUp) return undefined;
+    const timer = setInterval(async () => {
+      try {
+        applyCatchUpStatus(await getBTCUSDTKlinesCatchUpStatus());
+        notifyBTCUSDTCacheUpdated();
+        refreshNow();
+      } catch {
+        setIsCatchingUp(false);
+        setMarketActionMessage('BTCUSDT catch-up status unavailable.');
+      }
+    }, CATCH_UP_STATUS_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [isCatchingUp]);
 
   const activeJobs = snapshot?.active_jobs ?? [];
   const terminalRows = useMemo(() => events.map((event) => {
@@ -155,35 +196,17 @@ export function SystemManagementView() {
 
   const runCatchUp = async () => {
     if (isCatchingUp) {
-      stopCatchUpRef.current = true;
-      setMarketActionMessage('Stopping BTCUSDT catch-up after the current batch.');
+      applyCatchUpStatus(await stopBTCUSDTKlinesCatchUp());
       return;
     }
 
     setMarketActionMessage(null);
-    stopCatchUpRef.current = false;
-    setIsCatchingUp(true);
-    let totalRows = 0;
-    let batches = 0;
     try {
-      let hasMore = true;
-      while (hasMore && !stopCatchUpRef.current) {
-        const response = await catchUpBTCUSDTKlines();
-        const rows = response.data?.updatedRows ?? 0;
-        totalRows += rows;
-        batches += 1;
-        hasMore = Boolean(response.data?.hasMore);
-        setMarketActionMessage(`BTCUSDT catch-up updated ${totalRows} rows across ${batches} batch${batches === 1 ? '' : 'es'}.`);
-        notifyBTCUSDTCacheUpdated();
-        refreshNow();
-      }
-      if (stopCatchUpRef.current) {
-        setMarketActionMessage(`BTCUSDT catch-up stopped after ${batches} batch${batches === 1 ? '' : 'es'}.`);
-      }
+      applyCatchUpStatus(await catchUpBTCUSDTKlines());
+      notifyBTCUSDTCacheUpdated();
+      refreshNow();
     } catch (error) {
       setMarketActionMessage(error instanceof Error ? error.message : 'BTCUSDT catch-up failed.');
-    } finally {
-      setIsCatchingUp(false);
     }
   };
 

@@ -26,6 +26,15 @@ type StepId =
   | 'submit';
 
 type BlueprintConfigDetail = { indicators?: Record<string, unknown>; architecture?: Record<string, unknown> };
+type BlueprintDetail = {
+  id: number;
+  metadata: { name: string; description?: string | null; createdAt: string; updatedAt: string };
+  indicators: Record<string, unknown>;
+  architecture: Record<string, unknown>;
+  approvalState: string;
+  version: number;
+  owner: { id: number; username?: string | null; name?: string | null } | null;
+};
 type TargetMetadata = { name: string; parameterConstraints?: Record<string, ParameterConstraint>; parameter_constraints?: Record<string, ParameterConstraint>; defaultValues?: Record<string, unknown>; default_values?: Record<string, unknown>; binaryLabelRule?: string; binary_label_rule?: string };
 type ScalerStrategy = 'none' | 'normalization' | 'standardization' | 'log_transform';
 
@@ -238,7 +247,14 @@ function previewTargetParamEntries(
 
 function toDatetimeLocalValue(value: Date): string {
   const pad = (part: number) => String(part).padStart(2, '0');
-  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
+  return `${value.getUTCFullYear()}-${pad(value.getUTCMonth() + 1)}-${pad(value.getUTCDate())}T${pad(value.getUTCHours())}:${pad(value.getUTCMinutes())}`;
+}
+
+function clampDatetimeLocal(value: Date, min?: string | null, max?: string | null) {
+  let next = toDatetimeLocalValue(value);
+  if (min && next < min) next = min;
+  if (max && next > max) next = max;
+  return next;
 }
 
 function formatBlueprintUpdatedAt(value: string): string {
@@ -247,6 +263,17 @@ function formatBlueprintUpdatedAt(value: string): string {
     return '—';
   }
   return date.toISOString();
+}
+
+function getArchitectureName(architecture?: Record<string, unknown>) {
+  return String(architecture?.display_name ?? architecture?.displayName ?? architecture?.name ?? architecture?.reference ?? 'Architecture');
+}
+
+function getIndicatorCount(indicators?: Record<string, unknown>) {
+  if (!indicators) return 0;
+  if (Array.isArray(indicators.selected)) return indicators.selected.length;
+  if (Array.isArray(indicators.definitions)) return indicators.definitions.length;
+  return Object.keys(indicators).length;
 }
 
 function buildTargetPreviewPayload(draft: ExperimentDraft, targetParams: Record<string, string>) {
@@ -643,12 +670,88 @@ function TargetEntryAlignedForwardReturnCurve({ rows }: { rows: NonNullable<BTCU
   );
 }
 
+function SplitRangeBar({
+  train,
+  validation,
+  test,
+  onChange,
+}: {
+  train: number;
+  validation: number;
+  test: number;
+  onChange: (splits: { train: number; validation: number; test: number }) => void;
+}) {
+  const firstBoundary = Number.isFinite(train) ? train : 80;
+  const secondBoundary = Number.isFinite(train + validation) ? train + validation : 90;
+
+  function applyBoundaries(first: number, second: number) {
+    const trainBoundary = Math.max(0, Math.min(80, first));
+    const testBoundary = Math.max(trainBoundary + 10, Math.min(90, second));
+    onChange({
+      train: trainBoundary,
+      validation: testBoundary - trainBoundary,
+      test: 100 - testBoundary,
+    });
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-2 text-sm">
+        <div><p className="text-[11px] uppercase text-muted-foreground">Train</p><p className="font-mono text-lg">{train.toFixed(0)}%</p></div>
+        <div><p className="text-[11px] uppercase text-muted-foreground">Validation</p><p className="font-mono text-lg">{validation.toFixed(0)}%</p></div>
+        <div><p className="text-[11px] uppercase text-muted-foreground">Test</p><p className="font-mono text-lg">{test.toFixed(0)}%</p></div>
+      </div>
+      <div className="relative h-12">
+        <div className="absolute left-0 right-0 top-5 h-3 overflow-hidden rounded-full bg-muted">
+          <div className="absolute inset-y-0 left-0 bg-sky-500" style={{ width: `${firstBoundary}%` }} />
+          <div className="absolute inset-y-0 bg-amber-500" style={{ left: `${firstBoundary}%`, width: `${secondBoundary - firstBoundary}%` }} />
+          <div className="absolute inset-y-0 right-0 bg-emerald-500" style={{ width: `${100 - secondBoundary}%` }} />
+        </div>
+        <input
+          aria-label="Train validation split boundary"
+          type="range"
+          min={0}
+          max={Math.max(0, secondBoundary - 10)}
+          step={1}
+          value={firstBoundary}
+          onChange={(event) => applyBoundaries(Number(event.target.value), secondBoundary)}
+          className="pointer-events-none absolute inset-x-0 top-2 h-8 w-full appearance-none bg-transparent [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:h-7 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:cursor-ew-resize [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:bg-background [&::-moz-range-thumb]:shadow [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:cursor-ew-resize [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:bg-background [&::-webkit-slider-thumb]:shadow"
+        />
+        <input
+          aria-label="Validation test split boundary"
+          type="range"
+          min={Math.min(90, firstBoundary + 10)}
+          max={90}
+          step={1}
+          value={secondBoundary}
+          onChange={(event) => applyBoundaries(firstBoundary, Number(event.target.value))}
+          className="pointer-events-none absolute inset-x-0 top-2 h-8 w-full appearance-none bg-transparent [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:h-7 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:cursor-ew-resize [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:bg-background [&::-moz-range-thumb]:shadow [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:cursor-ew-resize [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:bg-background [&::-webkit-slider-thumb]:shadow"
+        />
+      </div>
+      <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-sky-500" /> Train</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> Validation min 10%</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Test min 10%</span>
+      </div>
+    </div>
+  );
+}
+
 export function ExperimentWizardView() {
   const router = useRouter();
   const [options, setOptions] = useState<Array<ExperimentBlueprintOption & BlueprintConfigDetail>>([]);
+  const [blueprintSearch, setBlueprintSearch] = useState('');
+  const [blueprintSort, setBlueprintSort] = useState('latest');
+  const [blueprintPage, setBlueprintPage] = useState(1);
+  const [blueprintTotalPages, setBlueprintTotalPages] = useState(1);
+  const [blueprintPreviewId, setBlueprintPreviewId] = useState<string | null>(null);
+  const [blueprintPreview, setBlueprintPreview] = useState<BlueprintDetail | null>(null);
+  const [blueprintPreviewLoading, setBlueprintPreviewLoading] = useState(false);
+  const [selectedBlueprintOption, setSelectedBlueprintOption] = useState<ExperimentBlueprintOption | null>(null);
   const [targetMetadata, setTargetMetadata] = useState<Record<string, TargetMetadata>>({});
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [blueprintDetails, setBlueprintDetails] = useState<Record<string, BlueprintConfigDetail>>({});
+  const [marketRange, setMarketRange] = useState<{ earliest: string | null; latest: string | null }>({ earliest: null, latest: null });
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [targetInfoOpen, setTargetInfoOpen] = useState(false);
   const [targetPreviewParams, setTargetPreviewParams] = useState<Record<string, string>>({});
@@ -706,9 +809,11 @@ export function ExperimentWizardView() {
   useEffect(() => {
     let active = true;
     (async () => {
-      const res = await getExperimentBlueprintOptions();
+      setLoadingOptions(true);
+      const res = await getExperimentBlueprintOptions({ search: blueprintSearch, sort: blueprintSort, page: blueprintPage, pageSize: 8 });
       if (active) {
         setOptions(res.data?.items ?? []);
+        setBlueprintTotalPages(res.data?.totalPages ?? 1);
         setLoadingOptions(false);
       }
     })();
@@ -716,7 +821,7 @@ export function ExperimentWizardView() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [blueprintPage, blueprintSearch, blueprintSort]);
 
   useEffect(() => {
     let active = true;
@@ -735,8 +840,8 @@ export function ExperimentWizardView() {
   }, []);
 
   const currentStep = STEP_META[currentStepIndex];
-  const selectedBlueprint = options.find((option) => String(option.id) === draft.blueprintId);
-  const selectedBlueprintDetail = draft.blueprintId ? (blueprintDetails[draft.blueprintId] ?? selectedBlueprint) : undefined;
+  const selectedBlueprint = options.find((option) => String(option.id) === draft.blueprintId) ?? selectedBlueprintOption;
+  const selectedBlueprintDetail = draft.blueprintId ? blueprintDetails[draft.blueprintId] : undefined;
   const architectureConstraints = useMemo(() => constraintRecord(selectedBlueprintDetail?.architecture), [selectedBlueprintDetail]);
   const selectedTargetMetadata = targetMetadata[draft.targetStrategy];
   const targetConstraints = useMemo(() => constraintRecord(selectedTargetMetadata as unknown as Record<string, unknown> | undefined), [selectedTargetMetadata]);
@@ -861,13 +966,17 @@ export function ExperimentWizardView() {
     (async () => {
       const metadata = await getBTCUSDTMetadata();
       const latest = metadata.data?.latestTimestamp;
+      const earliest = metadata.data?.earliestTimestamp;
       if (!active || !latest) return;
+      const latestLocal = toDatetimeLocalValue(new Date(latest));
+      const earliestLocal = earliest ? toDatetimeLocalValue(new Date(earliest)) : null;
       const end = new Date(latest);
       const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+      setMarketRange({ earliest: earliestLocal, latest: latestLocal });
       setDraft((prev) => ({
         ...prev,
-        startDateTime: prev.startDateTime || toDatetimeLocalValue(start),
-        endDateTime: prev.endDateTime || toDatetimeLocalValue(end),
+        startDateTime: prev.startDateTime || clampDatetimeLocal(start, earliestLocal, latestLocal),
+        endDateTime: prev.endDateTime || latestLocal,
       }));
     })();
 
@@ -979,6 +1088,30 @@ export function ExperimentWizardView() {
     }));
     hydratedOutputScalersForBlueprint.current = draft.blueprintId;
   }, [draft.blueprintId, indicatorOutputScalerEntries, selectedBlueprintDetail?.indicators]);
+
+  useEffect(() => {
+    let active = true;
+    if (!blueprintPreviewId) {
+      setBlueprintPreview(null);
+      return;
+    }
+    setBlueprintPreviewLoading(true);
+    apiGet<{ ok: boolean; data?: { blueprint?: BlueprintDetail } }>(API_ENDPOINTS.blueprints.byId(blueprintPreviewId))
+      .then((response) => {
+        if (!active) return;
+        setBlueprintPreview(response.data?.blueprint ?? null);
+      })
+      .catch(() => {
+        if (active) setBlueprintPreview(null);
+      })
+      .finally(() => {
+        if (active) setBlueprintPreviewLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [blueprintPreviewId]);
+
   const atFirstStep = currentStepIndex === 0;
   const atLastStep = currentStepIndex === STEP_META.length - 1;
 
@@ -1083,6 +1216,18 @@ export function ExperimentWizardView() {
         const normalizedEnd = draft.endDateTime.includes('T') ? draft.endDateTime : `${draft.endDateTime}T00:00`;
         if (draft.datasetMode === 'datetime-range' && draft.startDateTime && draft.endDateTime && normalizedStart >= normalizedEnd) {
           nextErrors.dateRange = 'Start date must be before end date.';
+        }
+        if (marketRange.earliest && draft.datasetMode === 'datetime-range' && draft.startDateTime && normalizedStart < marketRange.earliest) {
+          nextErrors.startDateTime = `Start datetime cannot be before ${marketRange.earliest}.`;
+        }
+        if (marketRange.latest && draft.datasetMode === 'datetime-range' && draft.startDateTime && normalizedStart > marketRange.latest) {
+          nextErrors.startDateTime = `Start datetime cannot be after ${marketRange.latest}.`;
+        }
+        if (marketRange.earliest && draft.endDateTime && normalizedEnd < marketRange.earliest) {
+          nextErrors.endDateTime = `End datetime cannot be before ${marketRange.earliest}.`;
+        }
+        if (marketRange.latest && draft.endDateTime && normalizedEnd > marketRange.latest) {
+          nextErrors.endDateTime = `End datetime cannot be after ${marketRange.latest}.`;
         }
 
       if (Object.keys(nextErrors).length > 0) {
@@ -1279,9 +1424,13 @@ export function ExperimentWizardView() {
           const metadata = await getBTCUSDTMetadata();
           const latest = metadata.data?.latestTimestamp;
           if (!latest) return;
+          const earliest = metadata.data?.earliestTimestamp;
+          const latestLocal = toDatetimeLocalValue(new Date(latest));
+          const earliestLocal = earliest ? toDatetimeLocalValue(new Date(earliest)) : null;
           const end = new Date(latest);
           const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
-          setDraft((prev) => ({ ...prev, startDateTime: toDatetimeLocalValue(start), endDateTime: toDatetimeLocalValue(end) }));
+          setMarketRange({ earliest: earliestLocal, latest: latestLocal });
+          setDraft((prev) => ({ ...prev, startDateTime: clampDatetimeLocal(start, earliestLocal, latestLocal), endDateTime: latestLocal }));
           setErrors((prev) => ({ ...prev, startDateTime: undefined, endDateTime: undefined, dateRange: undefined }));
         }
         return (
@@ -1342,6 +1491,8 @@ export function ExperimentWizardView() {
                       aria-label="Start Datetime"
                       type="datetime-local"
                       step="60"
+                      min={marketRange.earliest ?? undefined}
+                      max={marketRange.latest ?? undefined}
                       value={draft.startDateTime}
                       onChange={(event) => {
                         setDraft((prev) => ({ ...prev, startDateTime: event.target.value }));
@@ -1371,6 +1522,8 @@ export function ExperimentWizardView() {
         aria-label="End Datetime"
                       type="datetime-local"
                       step="60"
+                      min={marketRange.earliest ?? undefined}
+                      max={marketRange.latest ?? undefined}
                       value={draft.endDateTime}
                       onChange={(event) => {
                         setDraft((prev) => ({ ...prev, endDateTime: event.target.value }));
@@ -1409,52 +1562,23 @@ export function ExperimentWizardView() {
                 {errors.splitTotal ? <p className="text-xs text-destructive">{errors.splitTotal}</p> : null}
               </CardContent>
             </Card>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="train-split">Train Split</Label>
-                <Input
-                  id="train-split"
-                  type="number"
-                  step="0.01"
-                  value={draft.trainSplit}
-                  onChange={(event) => {
-                    setDraft((prev) => ({ ...prev, trainSplit: event.target.value }));
-                    setErrors((prev) => ({ ...prev, trainSplit: undefined, splitTotal: undefined }));
-                  }}
-                />
-                {errors.trainSplit ? <p className="text-xs text-destructive">{errors.trainSplit}</p> : null}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="val-split">Validation Split</Label>
-                <Input
-                  id="val-split"
-                  type="number"
-                  step="0.01"
-                  value={draft.valSplit}
-                  onChange={(event) => {
-                    setDraft((prev) => ({ ...prev, valSplit: event.target.value }));
-                    setErrors((prev) => ({ ...prev, valSplit: undefined, splitTotal: undefined }));
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">Minimum 10%</p>
-                {errors.valSplit ? <p className="text-xs text-destructive">{errors.valSplit}</p> : null}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="test-split">Test Split</Label>
-                <Input
-                  id="test-split"
-                  type="number"
-                  step="0.01"
-                  value={draft.testSplit}
-                  onChange={(event) => {
-                    setDraft((prev) => ({ ...prev, testSplit: event.target.value }));
-                    setErrors((prev) => ({ ...prev, testSplit: undefined, splitTotal: undefined }));
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">Minimum 10%</p>
-                {errors.testSplit ? <p className="text-xs text-destructive">{errors.testSplit}</p> : null}
-              </div>
-            </div>
+            <SplitRangeBar
+              train={splitTrain}
+              validation={splitVal}
+              test={splitTest}
+              onChange={(splits) => {
+                setDraft((prev) => ({
+                  ...prev,
+                  trainSplit: String(splits.train),
+                  valSplit: String(splits.validation),
+                  testSplit: String(splits.test),
+                }));
+                setErrors((prev) => ({ ...prev, trainSplit: undefined, valSplit: undefined, testSplit: undefined, splitTotal: undefined }));
+              }}
+            />
+            {errors.trainSplit ? <p className="text-xs text-destructive">{errors.trainSplit}</p> : null}
+            {errors.valSplit ? <p className="text-xs text-destructive">{errors.valSplit}</p> : null}
+            {errors.testSplit ? <p className="text-xs text-destructive">{errors.testSplit}</p> : null}
             <div className="space-y-2">
               <Label htmlFor="split-strategy">Split Strategy</Label>
       <select
@@ -1473,31 +1597,95 @@ export function ExperimentWizardView() {
       case 'blueprint-selection':
         return (
           <div className="space-y-4">
-            <p className="text-sm font-medium">Accessible Blueprints</p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="min-w-0 flex-1 space-y-2">
+                <Label htmlFor="blueprint-search">Search blueprints</Label>
+                <Input
+                  id="blueprint-search"
+                  value={blueprintSearch}
+                  onChange={(event) => {
+                    setBlueprintSearch(event.target.value);
+                    setBlueprintPage(1);
+                  }}
+                  placeholder="Search by name, id, owner, architecture..."
+                />
+              </div>
+              <div className="space-y-2 sm:w-48">
+                <Label htmlFor="blueprint-sort">Sort</Label>
+                <select
+                  id="blueprint-sort"
+                  aria-label="Blueprint sort"
+                  value={blueprintSort}
+                  onChange={(event) => {
+                    setBlueprintSort(event.target.value);
+                    setBlueprintPage(1);
+                  }}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <option value="latest">Latest</option>
+                  <option value="favorite">Favorite</option>
+                  <option value="name">Name</option>
+                  <option value="owner">Owner</option>
+                  <option value="version">Version</option>
+                </select>
+              </div>
+            </div>
             {loadingOptions ? (
               <p className="text-sm text-muted-foreground">Loading approved blueprints...</p>
             ) : options.length === 0 ? (
               <p className="text-sm text-muted-foreground">No approved blueprints available.</p>
             ) : (
-              <div className="space-y-2">
-                {options.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => {
-                      setDraft((prev) => ({ ...prev, blueprintId: String(option.id) }));
-                      setErrors((prev) => ({ ...prev, blueprintId: undefined }));
-                    }}
-                    className={`w-full rounded-lg border p-3 text-left text-sm transition-colors ${
-                      draft.blueprintId === String(option.id) ? 'border-primary bg-primary/5' : 'border-border bg-background'
-                    }`}
-                  >
-                    <p className="font-medium">{option.name} (v{option.version})</p>
-                    <p className="text-xs text-muted-foreground">Owner #{option.ownerId}</p>
-                  </button>
-                ))}
+              <div className="overflow-auto rounded-lg border">
+                <table className="min-w-[860px] w-full text-left text-sm">
+                  <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2">Blueprint</th>
+                      <th className="px-3 py-2">ID</th>
+                      <th className="px-3 py-2">Owner</th>
+                      <th className="px-3 py-2">Indicators</th>
+                      <th className="px-3 py-2">Architecture</th>
+                      <th className="px-3 py-2">Updated</th>
+                      <th className="px-3 py-2">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {options.map((option) => {
+                      const selected = draft.blueprintId === String(option.id);
+                      return (
+                        <tr key={option.id} className={selected ? 'border-t bg-primary/5' : 'border-t'}>
+                          <td className="px-3 py-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDraft((prev) => ({ ...prev, blueprintId: String(option.id) }));
+                                setSelectedBlueprintOption(option);
+                                setErrors((prev) => ({ ...prev, blueprintId: undefined }));
+                              }}
+                              className="text-left font-medium hover:underline"
+                            >
+                              {option.name} (v{option.version}) {option.isFavorited ? '(Favorite)' : ''}
+                            </button>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-xs">#{option.id}</td>
+                          <td className="px-3 py-2">{option.ownerName ?? `#${option.ownerId}`}</td>
+                          <td className="px-3 py-2">{option.indicatorCount ?? 0}</td>
+                          <td className="px-3 py-2">{option.architectureName ?? 'Architecture'}</td>
+                          <td className="px-3 py-2 font-mono text-xs">{formatBlueprintUpdatedAt(option.updatedAt)}</td>
+                          <td className="px-3 py-2">
+                            <Button type="button" variant="outline" size="xs" onClick={() => setBlueprintPreviewId(String(option.id))}>View</Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <Button type="button" variant="outline" size="sm" disabled={blueprintPage <= 1} onClick={() => setBlueprintPage((page) => Math.max(1, page - 1))}>Previous page</Button>
+              <span className="text-muted-foreground">Page {blueprintPage} of {blueprintTotalPages}</span>
+              <Button type="button" variant="outline" size="sm" disabled={blueprintPage >= blueprintTotalPages} onClick={() => setBlueprintPage((page) => Math.min(blueprintTotalPages, page + 1))}>Next page</Button>
+            </div>
             {errors.blueprintId ? <p className="text-xs text-destructive">{errors.blueprintId}</p> : null}
             {selectedBlueprint ? (
               <Card className="border-primary/20 bg-primary/5">
@@ -1507,7 +1695,9 @@ export function ExperimentWizardView() {
                 <CardContent className="space-y-1 text-sm">
                   <p><span className="text-muted-foreground">Name:</span> {selectedBlueprint.name}</p>
                   <p><span className="text-muted-foreground">Version:</span> v{selectedBlueprint.version}</p>
-                  <p><span className="text-muted-foreground">Owner:</span> #{selectedBlueprint.ownerId}</p>
+                  <p><span className="text-muted-foreground">Owner:</span> {selectedBlueprint.ownerName ?? `#${selectedBlueprint.ownerId}`}</p>
+                  <p><span className="text-muted-foreground">Architecture:</span> {selectedBlueprint.architectureName ?? 'Architecture'}</p>
+                  <p><span className="text-muted-foreground">Indicators:</span> {selectedBlueprint.indicatorCount ?? 0}</p>
                   <p><span className="text-muted-foreground">Updated:</span> {formatBlueprintUpdatedAt(selectedBlueprint.updatedAt)}</p>
                 </CardContent>
               </Card>
@@ -1517,7 +1707,7 @@ export function ExperimentWizardView() {
       case 'target-selection':
         return (
           <div className="space-y-4">
-            <div className="flex items-end gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
               <div className="min-w-0 flex-1 space-y-2">
                 <Label htmlFor="target-strategy">Target Strategy</Label>
                 <select
@@ -1549,7 +1739,7 @@ export function ExperimentWizardView() {
                   <p className="text-xs text-muted-foreground">{selectedTargetMetadata.binaryLabelRule ?? selectedTargetMetadata.binary_label_rule}</p>
                 ) : null}
               </div>
-              <Button type="button" variant="outline" size="xs" onClick={() => setTargetInfoOpen(true)}>
+              <Button type="button" variant="outline" className="h-10 sm:mb-0" onClick={() => setTargetInfoOpen(true)}>
                 <Info className="mr-2 h-3.5 w-3.5" />
                 Target info
               </Button>
@@ -1776,6 +1966,74 @@ export function ExperimentWizardView() {
       >
         {renderStepContent()}
       </WizardView>
+
+      {blueprintPreviewId ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Blueprint preview"
+          onClick={() => setBlueprintPreviewId(null)}
+        >
+          <div className="max-h-[88vh] w-full max-w-4xl overflow-auto rounded-2xl bg-background p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold">{blueprintPreview?.metadata.name ?? 'Blueprint preview'}</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {blueprintPreview ? `#${blueprintPreview.id} | v${blueprintPreview.version} | ${blueprintPreview.approvalState}` : 'Loading blueprint details...'}
+                </p>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={() => setBlueprintPreviewId(null)}>
+                <X className="mr-2 h-4 w-4" />
+                Close
+              </Button>
+            </div>
+            {blueprintPreviewLoading ? (
+              <div className="rounded-xl border bg-muted/20 p-6 text-sm text-muted-foreground">Loading blueprint preview...</div>
+            ) : !blueprintPreview ? (
+              <div className="rounded-xl border bg-muted/20 p-6 text-sm text-muted-foreground">Blueprint preview is unavailable.</div>
+            ) : (
+              <div className="space-y-4">
+                <Card>
+                  <CardHeader><CardTitle className="text-base">Metadata</CardTitle></CardHeader>
+                  <CardContent className="grid gap-2 text-sm sm:grid-cols-2">
+                    <div className="rounded-lg bg-muted/30 px-3 py-2"><p className="text-[11px] uppercase text-muted-foreground">Name</p><p className="font-medium">{blueprintPreview.metadata.name}</p></div>
+                    <div className="rounded-lg bg-muted/30 px-3 py-2"><p className="text-[11px] uppercase text-muted-foreground">Owner</p><p className="font-medium">{blueprintPreview.owner?.name ?? blueprintPreview.owner?.username ?? 'Unknown'}</p></div>
+                    <div className="rounded-lg bg-muted/30 px-3 py-2 sm:col-span-2"><p className="text-[11px] uppercase text-muted-foreground">Description</p><p>{blueprintPreview.metadata.description || 'No description provided.'}</p></div>
+                  </CardContent>
+                </Card>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <Card>
+                    <CardHeader><CardTitle className="text-base">Architecture</CardTitle></CardHeader>
+                    <CardContent className="space-y-2 text-sm">
+                      <p className="font-mono font-medium">{getArchitectureName(blueprintPreview.architecture)}</p>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {architectureParams(blueprintPreview.architecture).map(([key, value]) => (
+                          <div key={key} className="rounded-lg border bg-muted/20 px-3 py-2"><p className="text-[11px] uppercase text-muted-foreground">{key}</p><p className="font-mono">{String(value)}</p></div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader><CardTitle className="text-base">Indicators</CardTitle></CardHeader>
+                    <CardContent className="space-y-3 text-sm">
+                      <p className="text-muted-foreground">{getIndicatorCount(blueprintPreview.indicators)} indicators selected.</p>
+                      {indicatorParams(blueprintPreview.indicators).map(([indicator, fields]) => (
+                        <div key={indicator} className="rounded-lg border bg-muted/20 p-3">
+                          <p className="font-mono text-xs font-semibold">{indicator}</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {fields.map(([field, value]) => <span key={field} className="rounded border bg-background px-2 py-1 text-xs">{field}: {String(value)}</span>)}
+                          </div>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {targetInfoOpen ? (
         <div

@@ -15,7 +15,7 @@ jest.mock('@/lib/api/client', () => ({
   getExperimentBlueprintOptions: (...args: unknown[]) => optionsMock(...args),
   getBTCUSDTKlines: (...args: unknown[]) => klinesMock(...args),
   getBTCUSDTTargetPreview: (...args: unknown[]) => targetPreviewMock(...args),
-  getBTCUSDTMetadata: jest.fn().mockResolvedValue({ ok: true, data: { latestTimestamp: '2026-01-10T00:00:00Z' } }),
+  getBTCUSDTMetadata: jest.fn().mockResolvedValue({ ok: true, data: { earliestTimestamp: '2026-01-01T00:00:00Z', latestTimestamp: '2026-01-10T00:00:00Z' } }),
   getBlueprintMetadata: (...args: unknown[]) => getBlueprintMetadataMock(...args),
   getSystemSettings: (...args: unknown[]) => getSystemSettingsMock(...args),
   createExperiment: (...args: unknown[]) => createExperimentMock(...args),
@@ -137,7 +137,8 @@ describe('ExperimentWizardView', () => {
 
     await waitFor(() => expect(screen.getByText('Approved One (v1)')).toBeInTheDocument());
     expect(screen.getByText('Approved Two (v3)')).toBeInTheDocument();
-    expect(screen.getByText('Accessible Blueprints')).toBeInTheDocument();
+    expect(screen.getByLabelText('Search blueprints')).toBeInTheDocument();
+    expect(screen.getAllByText('Architecture').length).toBeGreaterThan(0);
   });
 
   it('blocks progression when no blueprint is selected and shows selected summary after picking one', async () => {
@@ -169,6 +170,50 @@ describe('ExperimentWizardView', () => {
     await user.click(screen.getByRole('button', { name: 'Next' }));
     await user.click(screen.getByRole('button', { name: 'Next' }));
     await waitFor(() => expect(screen.getByText('Architecture Overrides')).toBeInTheDocument());
+  });
+
+  it('opens a read-only blueprint preview from the table', async () => {
+    const user = userEvent.setup();
+    optionsMock.mockResolvedValue({
+      ok: true,
+      data: {
+        items: [{ id: 1, name: 'Approved One', version: 1, ownerId: 8, ownerName: 'Owner One', indicatorCount: 1, architectureName: 'logistic_regressor_arc', updatedAt: '2026-01-01T00:00:00Z' }],
+        page: 1,
+        totalPages: 1,
+      },
+    });
+    apiGetMock.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        blueprint: {
+          id: 1,
+          metadata: { name: 'Approved One', description: 'Preview description', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+          indicators: { definitions: [{ name: 'RSI', parameters: { timeperiod: 14 } }] },
+          architecture: { name: 'logistic_regressor_arc', parameters: { C: 1 } },
+          approvalState: 'Approved',
+          version: 1,
+          owner: { id: 8, username: 'owner', name: 'Owner One' },
+        },
+      },
+    });
+
+    render(<ExperimentWizardView />);
+    await waitFor(() => expect(screen.getByText('Step 1: Basics')).toBeInTheDocument());
+
+    await user.type(screen.getByLabelText('Experiment Name'), 'Preview Blueprint');
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.change(screen.getByLabelText('Start Datetime'), { target: { value: '2026-01-01T00:00' } });
+    fireEvent.change(screen.getByLabelText('End Datetime'), { target: { value: '2026-01-10T00:00' } });
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+
+    await user.click(screen.getByRole('button', { name: 'View' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Blueprint preview' });
+    const modal = within(dialog);
+    expect(modal.getByText('Preview description')).toBeInTheDocument();
+    expect(modal.getByText('logistic_regressor_arc')).toBeInTheDocument();
+    await user.click(modal.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Blueprint preview' })).not.toBeInTheDocument());
   });
 
   it('renders grouped parameter override fields before allowing review', async () => {
@@ -241,6 +286,28 @@ describe('ExperimentWizardView', () => {
     expect(screen.getByText('BTCUSDT 1m Dataset Preview')).toBeInTheDocument();
   });
 
+  it('constrains dataset datetime inputs to cached kline bounds', async () => {
+    const user = userEvent.setup();
+    optionsMock.mockResolvedValue({ ok: true, data: { items: [] } });
+
+    render(<ExperimentWizardView />);
+    await waitFor(() => expect(screen.getByText('Step 1: Basics')).toBeInTheDocument());
+
+    await user.type(screen.getByLabelText('Experiment Name'), 'Bounds Check');
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+
+    await waitFor(() => expect(screen.getByLabelText('Start Datetime')).toHaveAttribute('min', '2026-01-01T00:00'));
+    expect(screen.getByLabelText('Start Datetime')).toHaveAttribute('max', '2026-01-10T00:00');
+    expect(screen.getByLabelText('End Datetime')).toHaveAttribute('min', '2026-01-01T00:00');
+    expect(screen.getByLabelText('End Datetime')).toHaveAttribute('max', '2026-01-10T00:00');
+
+    fireEvent.change(screen.getByLabelText('Start Datetime'), { target: { value: '2025-12-31T23:00' } });
+    fireEvent.change(screen.getByLabelText('End Datetime'), { target: { value: '2026-01-10T00:00' } });
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+
+    expect(screen.getByText('Start datetime cannot be before 2026-01-01T00:00.')).toBeInTheDocument();
+  });
+
   it('shows all RFC-009 interval options', async () => {
     const user = userEvent.setup();
     optionsMock.mockResolvedValue({ ok: true, data: { items: [] } });
@@ -274,6 +341,25 @@ describe('ExperimentWizardView', () => {
     await user.click(screen.getByRole('button', { name: 'Next' }));
 
     expect((screen.getByLabelText('Split Strategy') as HTMLSelectElement).value).toBe('time_based_sequential');
+  });
+
+  it('uses split range draggers and clamps validation and test minimums', async () => {
+    const user = userEvent.setup();
+    optionsMock.mockResolvedValue({ ok: true, data: { items: [] } });
+
+    render(<ExperimentWizardView />);
+    await waitFor(() => expect(screen.getByText('Step 1: Basics')).toBeInTheDocument());
+
+    await user.type(screen.getByLabelText('Experiment Name'), 'Split Drag');
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.change(screen.getByLabelText('Start Datetime'), { target: { value: '2026-01-01T00:00' } });
+    fireEvent.change(screen.getByLabelText('End Datetime'), { target: { value: '2026-01-10T00:00' } });
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+
+    fireEvent.change(screen.getByLabelText('Validation test split boundary'), { target: { value: '95' } });
+
+    expect(screen.getByText('80%')).toBeInTheDocument();
+    expect(screen.getAllByText('10%')).toHaveLength(2);
   });
 
   it('shows the deterministic seed field by default', async () => {
@@ -615,7 +701,7 @@ describe('ExperimentWizardView', () => {
     expect(screen.getByLabelText('Desired permutations to run')).toBeInTheDocument();
   });
 
-  it('shows split computed total and blocks progression when total is not 100%', async () => {
+  it('shows split computed total from the range bar', async () => {
     const user = userEvent.setup();
     optionsMock.mockResolvedValue({ ok: true, data: { items: [] } });
 
@@ -629,21 +715,13 @@ describe('ExperimentWizardView', () => {
     await user.click(screen.getByRole('button', { name: 'Next' }));
 
     expect(screen.getByText('Computed Total: 100.00%')).toBeInTheDocument();
-
-    await user.clear(screen.getByLabelText('Train Split'));
-    await user.type(screen.getByLabelText('Train Split'), '70');
-    await user.clear(screen.getByLabelText('Validation Split'));
-    await user.type(screen.getByLabelText('Validation Split'), '10');
-    await user.clear(screen.getByLabelText('Test Split'));
-    await user.type(screen.getByLabelText('Test Split'), '10');
-
-    expect(screen.getByText('Computed Total: 90.00%')).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Next' }));
-    expect(screen.getByText('Train + Validation + Test must total 100%.')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Train validation split boundary'), { target: { value: '70' } });
+    expect(screen.getByText('70%')).toBeInTheDocument();
+    expect(screen.getByText('20%')).toBeInTheDocument();
+    expect(screen.getByText('Computed Total: 100.00%')).toBeInTheDocument();
   });
 
-  it('surfaces min constraints for validation/test splits and allows valid split progression', async () => {
+  it('allows valid split progression from the range bar', async () => {
     const user = userEvent.setup();
     optionsMock.mockResolvedValue({ ok: true, data: { items: [] } });
 
@@ -656,26 +734,10 @@ describe('ExperimentWizardView', () => {
     fireEvent.change(screen.getByLabelText('End Datetime'), { target: { value: '2026-01-10T00:00' } });
     await user.click(screen.getByRole('button', { name: 'Next' }));
 
-    await user.clear(screen.getByLabelText('Train Split'));
-    await user.type(screen.getByLabelText('Train Split'), '90');
-    await user.clear(screen.getByLabelText('Validation Split'));
-    await user.type(screen.getByLabelText('Validation Split'), '5');
-    await user.clear(screen.getByLabelText('Test Split'));
-    await user.type(screen.getByLabelText('Test Split'), '5');
+    fireEvent.change(screen.getByLabelText('Validation test split boundary'), { target: { value: '95' } });
     await user.click(screen.getByRole('button', { name: 'Next' }));
 
-    expect(screen.getByText('Validation split must be at least 10%.')).toBeInTheDocument();
-    expect(screen.getByText('Test split must be at least 10%.')).toBeInTheDocument();
-
-    await user.clear(screen.getByLabelText('Train Split'));
-    await user.type(screen.getByLabelText('Train Split'), '80');
-    await user.clear(screen.getByLabelText('Validation Split'));
-    await user.type(screen.getByLabelText('Validation Split'), '10');
-    await user.clear(screen.getByLabelText('Test Split'));
-    await user.type(screen.getByLabelText('Test Split'), '10');
-    await user.click(screen.getByRole('button', { name: 'Next' }));
-
-    await waitFor(() => expect(screen.getByText('Accessible Blueprints')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText('Search blueprints')).toBeInTheDocument());
   });
 
   it('submits experiment and redirects to detail on success', async () => {

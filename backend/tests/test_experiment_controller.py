@@ -6,6 +6,7 @@ from decimal import Decimal
 from app import create_app
 from app.domain.models.blueprint import Blueprint
 from app.domain.models.experiment import Experiment
+from app.domain.models.favorite_blueprint import FavoriteBlueprint
 from app.domain.models.model import Model
 from app.domain.value_objects.validation_result import ValidationResult
 from app.infrastructure.database.base import Base
@@ -82,6 +83,68 @@ def test_experiment_blueprint_options_returns_approved_only() -> None:
     items = response.get_json()["data"]["items"]
     names = {item["name"] for item in items}
     assert names == {"BP Approved"}
+    assert items[0]["indicatorCount"] == 0
+    assert items[0]["architectureName"] == "Architecture"
+
+
+def test_experiment_blueprint_options_search_paginates_and_sorts_latest() -> None:
+    client = _client()
+    client.post("/api/auth/register", json={
+        "name": "owner",
+        "username": "owner003",
+        "email": "owner003@example.com",
+        "password": "securepass",
+    })
+
+    with UnitOfWork() as uow:
+        owner = uow.users.get_by_email("owner003@example.com")
+        older = datetime(2026, 1, 1, 12, 0, 0)
+        newer = datetime(2026, 1, 2, 12, 0, 0)
+        uow.blueprints.add(Blueprint(None, owner.user_id, "Alpha Search", None, {
+            "selected": ["RSI", "MACD"],
+        }, {}, {"name": "logistic_regressor_arc"}, "Approved", older, 1, None, older, older))
+        uow.blueprints.add(Blueprint(None, owner.user_id, "Beta Search", None, {
+            "definitions": [{"name": "SMA"}],
+        }, {}, {"name": "random_forest_arc"}, "Approved", newer, 2, None, newer, newer))
+
+    response = client.get("/api/experiments/blueprint-options?search=search&page=1&pageSize=1")
+    assert response.status_code == 200
+    data = response.get_json()["data"]
+    assert data["total"] == 2
+    assert data["totalPages"] == 2
+    assert data["items"][0]["name"] == "Beta Search"
+    assert data["items"][0]["ownerName"] == "owner"
+    assert data["items"][0]["indicatorCount"] == 1
+    assert data["items"][0]["architectureName"] == "random_forest_arc"
+
+
+def test_experiment_blueprint_options_favorite_sort() -> None:
+    client = _client()
+    client.post("/api/auth/register", json={
+        "name": "owner",
+        "username": "owner004",
+        "email": "owner004@example.com",
+        "password": "securepass",
+    })
+    client.post("/api/auth/login", json={
+        "email": "owner004@example.com",
+        "password": "securepass",
+    })
+
+    with UnitOfWork() as uow:
+        owner = uow.users.get_by_email("owner004@example.com")
+        now = datetime(2026, 1, 1, 12, 0, 0)
+        plain = uow.blueprints.add(Blueprint(None, owner.user_id, "Plain BP", None, {
+        }, {}, {}, "Approved", now, 1, None, now, now))
+        favored = uow.blueprints.add(Blueprint(None, owner.user_id, "Favored BP", None, {
+        }, {}, {}, "Approved", now, 1, None, now, now))
+        uow.favorite_blueprints.add(FavoriteBlueprint(owner.user_id, favored.blueprint_id, now))
+
+    response = client.get("/api/experiments/blueprint-options?sort=favorite")
+    assert response.status_code == 200
+    items = response.get_json()["data"]["items"]
+    assert [item["name"] for item in items[:2]] == ["Favored BP", "Plain BP"]
+    assert items[0]["isFavorited"] is True
 
 
 def test_create_experiment_requires_authentication() -> None:

@@ -653,11 +653,21 @@ export interface ExperimentBlueprintOption {
   name: string;
   version: number;
   ownerId: number;
+  ownerName?: string;
+  indicatorCount?: number;
+  architectureName?: string;
   updatedAt: string;
+  isFavorited?: boolean;
 }
 
-export function getExperimentBlueprintOptions(): Promise<{ ok: boolean; data?: { items?: ExperimentBlueprintOption[] } }> {
-  return apiGet<{ ok: boolean; data?: { items?: ExperimentBlueprintOption[] } }>(API_ENDPOINTS.experiments.blueprintOptions);
+export function getExperimentBlueprintOptions(params: { search?: string; page?: number; pageSize?: number; sort?: string } = {}): Promise<{ ok: boolean; data?: { items?: ExperimentBlueprintOption[]; page?: number; pageSize?: number; total?: number; totalPages?: number; sort?: string } }> {
+  const query = new URLSearchParams();
+  if (params.search) query.set('search', params.search);
+  if (params.page) query.set('page', String(params.page));
+  if (params.pageSize) query.set('pageSize', String(params.pageSize));
+  if (params.sort) query.set('sort', params.sort);
+  const suffix = query.toString();
+  return apiGet<{ ok: boolean; data?: { items?: ExperimentBlueprintOption[]; page?: number; pageSize?: number; total?: number; totalPages?: number; sort?: string } }>(suffix ? `${API_ENDPOINTS.experiments.blueprintOptions}?${suffix}` : API_ENDPOINTS.experiments.blueprintOptions);
 }
 
 export interface CreateExperimentRequest {
@@ -928,9 +938,15 @@ export function getBTCUSDTMetadata(): Promise<BTCUSDTMetadataResponse> {
 export interface BTCUSDTAdminActionResponse {
   ok: boolean;
   data?: {
+    state?: 'idle' | 'running' | 'stopping' | 'stopped' | 'completed' | 'error';
+    isRunning?: boolean;
     updatedRows?: number;
+    batches?: number;
     clearedRows?: number;
     hasMore?: boolean;
+    error?: string | null;
+    startedAt?: string | null;
+    endedAt?: string | null;
     range?: {
       start?: string | null;
       end?: string | null;
@@ -940,6 +956,14 @@ export interface BTCUSDTAdminActionResponse {
 
 export function catchUpBTCUSDTKlines(): Promise<BTCUSDTAdminActionResponse> {
   return apiPost<BTCUSDTAdminActionResponse>(API_ENDPOINTS.marketData.btcusdtCatchUp);
+}
+
+export function getBTCUSDTKlinesCatchUpStatus(): Promise<BTCUSDTAdminActionResponse> {
+  return apiGet<BTCUSDTAdminActionResponse>(API_ENDPOINTS.marketData.btcusdtCatchUpStatus);
+}
+
+export function stopBTCUSDTKlinesCatchUp(): Promise<BTCUSDTAdminActionResponse> {
+  return apiPost<BTCUSDTAdminActionResponse>(API_ENDPOINTS.marketData.btcusdtCatchUpStop);
 }
 
 export function clearBTCUSDTKlines(): Promise<BTCUSDTAdminActionResponse> {

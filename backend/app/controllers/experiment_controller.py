@@ -69,6 +69,25 @@ def _normalize_split_for_storage(raw_value: object) -> Decimal:
 
 
 MINUTES_PER_DAY = 24 * 60
+BLUEPRINT_OPTION_PAGE_SIZE = 8
+
+
+def _indicator_count(indicators: object) -> int:
+    if not isinstance(indicators, dict):
+        return 0
+    selected = indicators.get("selected")
+    if isinstance(selected, list):
+        return len(selected)
+    definitions = indicators.get("definitions")
+    if isinstance(definitions, list):
+        return len(definitions)
+    return len(indicators)
+
+
+def _architecture_name(architecture: object) -> str:
+    if not isinstance(architecture, dict):
+        return "Architecture"
+    return str(architecture.get("display_name") or architecture.get("name") or architecture.get("reference") or "Architecture")
 
 
 def _to_utc_iso(value: datetime) -> str:
@@ -744,26 +763,74 @@ def get_experiment_detail(experiment_id: int):
 def list_experiment_blueprint_options():
     access_control = build_access_control()
     actor = access_control.get_authenticated_context(request)
+    search = str(request.args.get("search") or "").strip().lower()
+    sort = str(request.args.get("sort") or "latest").strip().lower()
+    try:
+        page = max(1, int(request.args.get("page", "1")))
+    except ValueError:
+        page = 1
+    try:
+        page_size = max(1, min(50, int(request.args.get("pageSize", str(BLUEPRINT_OPTION_PAGE_SIZE)))))
+    except ValueError:
+        page_size = BLUEPRINT_OPTION_PAGE_SIZE
+
     with UnitOfWork() as uow:
         approved = uow.blueprints.list_by_approval_state("Approved")
         owned = uow.blueprints.list_by_user(actor.user_id) if actor is not None and hasattr(
             uow.blueprints, "list_by_user") else []
         items = list({bp.blueprint_id: bp for bp in [*approved, *owned] if str(
             bp.approval_state).lower() not in {"disapproved", "rejected", "deleted"}}.values())
+        rows = []
+        for bp in items:
+            owner = uow.users.get_by_id(bp.user_id) if uow.users else None
+            owner_name = owner.name if owner is not None else f"User #{bp.user_id}"
+            is_favorited = bool(
+                actor is not None
+                and bp.blueprint_id is not None
+                and uow.favorite_blueprints
+                and uow.favorite_blueprints.exists(actor.user_id, bp.blueprint_id)
+            )
+            row = {
+                "id": bp.blueprint_id,
+                "name": bp.name,
+                "version": bp.version,
+                "ownerId": bp.user_id,
+                "ownerName": owner_name,
+                "indicatorCount": _indicator_count(bp.indicators),
+                "architectureName": _architecture_name(bp.architecture),
+                "updatedAt": bp.updated_at.isoformat(),
+                "isFavorited": is_favorited,
+            }
+            haystack = f"{row['name']} {row['id']} {row['ownerId']} {row['ownerName']} {row['architectureName']}".lower()
+            if not search or search in haystack:
+                rows.append(row)
+
+    if sort == "favorite":
+        rows.sort(key=lambda item: (not item["isFavorited"], str(item["name"]).lower()))
+    elif sort == "name":
+        rows.sort(key=lambda item: str(item["name"]).lower())
+    elif sort == "owner":
+        rows.sort(key=lambda item: (str(item["ownerName"]).lower(), str(item["name"]).lower()))
+    elif sort == "version":
+        rows.sort(key=lambda item: (-int(item["version"] or 0), str(item["name"]).lower()))
+    else:
+        rows.sort(key=lambda item: str(item["updatedAt"]), reverse=True)
+
+    total = len(rows)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    page = min(page, total_pages)
+    start = (page - 1) * page_size
+    paged_rows = rows[start:start + page_size]
 
     return ok_response(
         {
             "data": {
-                "items": [
-                    {
-                        "id": bp.blueprint_id,
-                        "name": bp.name,
-                        "version": bp.version,
-                        "ownerId": bp.user_id,
-                        "updatedAt": bp.updated_at.isoformat(),
-                    }
-                    for bp in items
-                ]
+                "items": paged_rows,
+                "page": page,
+                "pageSize": page_size,
+                "total": total,
+                "totalPages": total_pages,
+                "sort": sort,
             }
         }
     )

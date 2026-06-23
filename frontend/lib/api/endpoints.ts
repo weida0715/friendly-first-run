@@ -72,6 +72,8 @@ export const API_ENDPOINTS = {
     btcusdtMetadata: '/market-data/btcusdt/metadata',
     btcusdtTargetPreview: '/market-data/btcusdt/target-preview',
     btcusdtCatchUp: '/market-data/btcusdt/admin/catch-up',
+    btcusdtCatchUpStatus: '/market-data/btcusdt/admin/catch-up/status',
+    btcusdtCatchUpStop: '/market-data/btcusdt/admin/catch-up/stop',
     btcusdtClearKlines: '/market-data/btcusdt/admin/klines',
   },
   system: {

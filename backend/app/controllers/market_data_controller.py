@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from threading import Event, Lock, Thread
 from typing import Any
 from statistics import median
 import math
@@ -45,6 +47,21 @@ INTERVAL_MINUTES = {
 }
 MAX_TARGET_PREVIEW_RAW_ROWS = 12000
 
+# ponytail: process-local worker; use durable queue state if catch-up must survive backend restarts.
+_catch_up_lock = Lock()
+_catch_up_stop = Event()
+_catch_up_thread: Thread | None = None
+_catch_up_status: dict[str, Any] = {
+    "state": "idle",
+    "updatedRows": 0,
+    "batches": 0,
+    "hasMore": False,
+    "range": None,
+    "error": None,
+    "startedAt": None,
+    "endedAt": None,
+}
+
 
 def _require_admin_access():
     access_control = build_access_control()
@@ -74,6 +91,63 @@ def _coerce_datetime(value: datetime | str) -> datetime:
         return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
     parsed = datetime.fromisoformat(value)
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def _catch_up_status_copy() -> dict[str, Any]:
+    with _catch_up_lock:
+        status = deepcopy(_catch_up_status)
+        status["isRunning"] = status["state"] in {"running", "stopping"}
+        return status
+
+
+def _set_catch_up_status(**updates: Any) -> None:
+    with _catch_up_lock:
+        _catch_up_status.update(updates)
+
+
+def _run_catch_up_until_current() -> None:
+    total_rows = 0
+    batches = 0
+    next_start: datetime | None = None
+
+    try:
+        while not _catch_up_stop.is_set():
+            service = MarketDataService()
+            latest = service.get_latest_cached_btcusdt_1m_timestamp()
+            cache_start = latest + timedelta(minutes=1) if latest is not None else DEFAULT_BTCUSDT_1M_START
+            start = max(cache_start, next_start) if next_start is not None else cache_start
+            requested_end = datetime.now(UTC)
+            end = min(requested_end, start + ADMIN_CATCH_UP_WINDOW)
+            if start >= end:
+                _set_catch_up_status(state="completed", hasMore=False, endedAt=datetime.now(UTC).isoformat())
+                return
+
+            summary = service.refresh_btcusdt_1m(start=start, end=end)
+            rows = summary.inserted + summary.updated
+            total_rows += rows
+            batches += 1
+            next_start = end
+            has_more = end < requested_end
+            _set_catch_up_status(
+                state="running",
+                updatedRows=total_rows,
+                batches=batches,
+                hasMore=has_more,
+                range={"start": start.isoformat(), "end": end.isoformat()},
+            )
+            if not has_more:
+                _set_catch_up_status(state="completed", endedAt=datetime.now(UTC).isoformat())
+                return
+
+        _set_catch_up_status(state="stopped", hasMore=True, endedAt=datetime.now(UTC).isoformat())
+    except MarketDataRefreshError as exc:
+        _set_catch_up_status(state="error", error=str(exc), endedAt=datetime.now(UTC).isoformat())
+    except Exception as exc:
+        _set_catch_up_status(
+            state="error",
+            error=f"{exc.__class__.__name__}: {exc}",
+            endedAt=datetime.now(UTC).isoformat(),
+        )
 
 
 def _extract_kline_fields(item) -> tuple[datetime, object, object, object, object, object]:
@@ -741,52 +815,70 @@ def get_btcusdt_metadata():
 
 @blueprint.post("/btcusdt/admin/catch-up")
 def catch_up_btcusdt_cache():
+    global _catch_up_thread
     _, actor, error = _require_admin_access()
     if error is not None:
         return error
 
-    try:
-        service = MarketDataService()
-        latest = service.get_latest_cached_btcusdt_1m_timestamp()
-        start = latest + timedelta(minutes=1) if latest is not None else DEFAULT_BTCUSDT_1M_START
-        requested_end = datetime.now(UTC)
-        end = min(requested_end, start + ADMIN_CATCH_UP_WINDOW)
-        if start >= end:
-            return ok_response(
-                {
-                    "data": {
-                        "status": "no-op",
-                        "updatedRows": 0,
-                        "range": {
-                            "start": start.isoformat(),
-                            "end": end.isoformat(),
-                        },
-                    }
-                }
-            )
-        summary = service.refresh_btcusdt_1m(start=start, end=end)
-        inserted_or_updated = summary.inserted + summary.updated
-    except MarketDataRefreshError as exc:
-        return error_response(str(exc), status_code=500, code="BTCUSDT_REFRESH_FAILED")
+    with _catch_up_lock:
+        if _catch_up_thread is not None and _catch_up_thread.is_alive():
+            status = deepcopy(_catch_up_status)
+            status["isRunning"] = True
+            return ok_response({"data": status}, status_code=202)
+
+        _catch_up_stop.clear()
+        _catch_up_status.update(
+            {
+                "state": "running",
+                "updatedRows": 0,
+                "batches": 0,
+                "hasMore": True,
+                "range": None,
+                "error": None,
+                "startedAt": datetime.now(UTC).isoformat(),
+                "endedAt": None,
+            }
+        )
+        _catch_up_thread = Thread(target=_run_catch_up_until_current, daemon=True)
+        _catch_up_thread.start()
 
     SystemController.record_event(
         scope="market_data",
-        action="BTCUSDT cache catch-up",
+        action="BTCUSDT cache catch-up started",
         actor=actor,
-        message=f"Catch-up requested from {start.isoformat()} to {end.isoformat()}",
+        message="Catch-up requested until current market data",
     )
-    return ok_response(
-        {
-            "data": {
-                "updatedRows": inserted_or_updated,
-                "hasMore": end < requested_end,
-                "range": {
-                    "start": start.isoformat(),
-                    "end": end.isoformat(),
-                },
-            }
-        }
-    )
+    return ok_response({"data": _catch_up_status_copy()}, status_code=202)
+
+
+@blueprint.get("/btcusdt/admin/catch-up/status")
+def get_btcusdt_catch_up_status():
+    _, _, error = _require_admin_access()
+    if error is not None:
+        return error
+    return ok_response({"data": _catch_up_status_copy()})
+
+
+@blueprint.post("/btcusdt/admin/catch-up/stop")
+def stop_btcusdt_catch_up():
+    _, actor, error = _require_admin_access()
+    if error is not None:
+        return error
+
+    with _catch_up_lock:
+        is_running = _catch_up_thread is not None and _catch_up_thread.is_alive()
+        if is_running:
+            _catch_up_stop.set()
+            _catch_up_status["state"] = "stopping"
+
+    if is_running:
+        SystemController.record_event(
+            scope="market_data",
+            action="BTCUSDT cache catch-up stop requested",
+            actor=actor,
+            message="Catch-up will stop after the current batch",
+        )
+    return ok_response({"data": _catch_up_status_copy()})
 
 
 @blueprint.delete("/btcusdt/admin/klines")
@@ -794,6 +886,13 @@ def clear_btcusdt_cache():
     _, actor, error = _require_admin_access()
     if error is not None:
         return error
+    with _catch_up_lock:
+        if _catch_up_thread is not None and _catch_up_thread.is_alive():
+            return error_response(
+                "Stop BTCUSDT catch-up before clearing cached data.",
+                status_code=409,
+                code="BTCUSDT_CATCH_UP_RUNNING",
+            )
 
     service = MarketDataService()
     try:

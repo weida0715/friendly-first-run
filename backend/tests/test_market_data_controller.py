@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+import time
 
 import pytest
 
@@ -22,6 +23,44 @@ from app.infrastructure.database.orm import (  # noqa: F401
 from app.infrastructure.database.session import configure_engine, get_engine
 from app.repositories.unit_of_work import UnitOfWork
 from app.infrastructure.database.orm.user_orm import UserORM
+
+
+def _reset_catch_up_state() -> None:
+    market_data_controller._catch_up_stop.set()
+    thread = market_data_controller._catch_up_thread
+    if thread is not None and thread.is_alive() and hasattr(thread, "join"):
+        thread.join(timeout=1)
+    with market_data_controller._catch_up_lock:
+        market_data_controller._catch_up_thread = None
+        market_data_controller._catch_up_stop.clear()
+        market_data_controller._catch_up_status.update(
+            {
+                "state": "idle",
+                "updatedRows": 0,
+                "batches": 0,
+                "hasMore": False,
+                "range": None,
+                "error": None,
+                "startedAt": None,
+                "endedAt": None,
+            }
+        )
+
+
+@pytest.fixture(autouse=True)
+def reset_market_data_catch_up():
+    _reset_catch_up_state()
+    yield
+    _reset_catch_up_state()
+
+
+def _wait_for(predicate) -> None:
+    deadline = time.monotonic() + 1
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.01)
+    assert predicate()
 
 
 def _register_and_login_admin(client, username: str, email: str) -> str:
@@ -646,22 +685,20 @@ def test_market_data_admin_catch_up_uses_latest_cached_timestamp(monkeypatch: py
 
     class FakeService:
         def get_latest_cached_btcusdt_1m_timestamp(self):
-            with UnitOfWork() as uow:
-                latest = uow.market_data.get_latest_timestamp() if uow.market_data else None
-            return latest if latest is None or latest.tzinfo is not None else latest.replace(tzinfo=UTC)
+            return datetime(2026, 1, 1, 0, 1, tzinfo=UTC)
 
         def refresh_btcusdt_1m(self, start: datetime, end: datetime):
             captured["start"] = start
             captured["end"] = end
+            market_data_controller._catch_up_stop.set()
             return type("Summary", (), {"inserted": 1, "updated": 0})()
 
     monkeypatch.setattr(market_data_controller, "MarketDataService", FakeService)
 
     response = client.post("/api/market-data/btcusdt/admin/catch-up", headers={"Cookie": admin_cookie})
 
-    assert response.status_code == 200
-    body = response.get_json()["data"]
-    assert body["range"]["start"] == "2026-01-01T00:02:00+00:00"
+    assert response.status_code == 202
+    _wait_for(lambda: "start" in captured)
     assert captured["start"] == datetime(2026, 1, 1, 0, 2, tzinfo=UTC)
     assert captured["end"] >= captured["start"]
 
@@ -699,13 +736,57 @@ def test_market_data_admin_catch_up_after_clear_defaults_to_earliest_start(monke
         def refresh_btcusdt_1m(self, start: datetime, end: datetime):
             captured["start"] = start
             captured["end"] = end
+            market_data_controller._catch_up_stop.set()
             return type("Summary", (), {"inserted": 2, "updated": 0})()
 
     monkeypatch.setattr(market_data_controller, "MarketDataService", FakeService)
 
     response = client.post("/api/market-data/btcusdt/admin/catch-up", headers={"Cookie": admin_cookie})
 
-    assert response.status_code == 200
+    assert response.status_code == 202
+    _wait_for(lambda: "start" in captured)
     assert captured["start"] == datetime(2017, 8, 17, 0, 0, tzinfo=UTC)
     assert captured["end"] == captured["start"] + market_data_controller.ADMIN_CATCH_UP_WINDOW
-    assert response.get_json()["data"]["hasMore"] is True
+
+
+def test_market_data_admin_catch_up_status_and_stop_return_running_state() -> None:
+    client = _client()
+    admin_cookie = _register_and_login_admin(client, "adminstatus", "adminstatus@example.com")
+
+    class FakeThread:
+        def is_alive(self):
+            return True
+
+    with market_data_controller._catch_up_lock:
+        market_data_controller._catch_up_thread = FakeThread()
+        market_data_controller._catch_up_status.update(
+            {"state": "running", "updatedRows": 10, "batches": 2, "hasMore": True}
+        )
+
+    status = client.get("/api/market-data/btcusdt/admin/catch-up/status", headers={"Cookie": admin_cookie})
+    assert status.status_code == 200
+    assert status.get_json()["data"]["isRunning"] is True
+
+    stopped = client.post("/api/market-data/btcusdt/admin/catch-up/stop", headers={"Cookie": admin_cookie})
+    assert stopped.status_code == 200
+    body = stopped.get_json()["data"]
+    assert body["state"] == "stopping"
+    assert body["isRunning"] is True
+
+
+def test_market_data_admin_clear_data_rejects_while_catch_up_runs() -> None:
+    client = _client()
+    admin_cookie = _register_and_login_admin(client, "adminbusy", "adminbusy@example.com")
+
+    class FakeThread:
+        def is_alive(self):
+            return True
+
+    with market_data_controller._catch_up_lock:
+        market_data_controller._catch_up_thread = FakeThread()
+        market_data_controller._catch_up_status["state"] = "running"
+
+    response = client.delete("/api/market-data/btcusdt/admin/klines", headers={"Cookie": admin_cookie})
+
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == "BTCUSDT_CATCH_UP_RUNNING"
