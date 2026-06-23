@@ -30,6 +30,7 @@ blueprint = Blueprint("market_data", __name__)
 DEFAULT_API_KLINE_LIMIT = 5000
 MAX_API_KLINE_LIMIT = 20000
 DEFAULT_BTCUSDT_1M_START = datetime(2017, 8, 17, tzinfo=UTC)
+ADMIN_CATCH_UP_WINDOW = timedelta(days=1)
 
 SUPPORTED_PREVIEW_INTERVALS = tuple(MarketDataRepository.SUPPORTED_INTERVALS.keys())
 INTERVAL_MINUTES = {
@@ -748,7 +749,8 @@ def catch_up_btcusdt_cache():
         service = MarketDataService()
         latest = service.get_latest_cached_btcusdt_1m_timestamp()
         start = latest + timedelta(minutes=1) if latest is not None else DEFAULT_BTCUSDT_1M_START
-        end = datetime.now(UTC)
+        requested_end = datetime.now(UTC)
+        end = min(requested_end, start + ADMIN_CATCH_UP_WINDOW)
         if start >= end:
             return ok_response(
                 {
@@ -777,6 +779,7 @@ def catch_up_btcusdt_cache():
         {
             "data": {
                 "updatedRows": inserted_or_updated,
+                "hasMore": end < requested_end,
                 "range": {
                     "start": start.isoformat(),
                     "end": end.isoformat(),

@@ -707,3 +707,5 @@ def test_market_data_admin_catch_up_after_clear_defaults_to_earliest_start(monke
 
     assert response.status_code == 200
     assert captured["start"] == datetime(2017, 8, 17, 0, 0, tzinfo=UTC)
+    assert captured["end"] == captured["start"] + market_data_controller.ADMIN_CATCH_UP_WINDOW
+    assert response.get_json()["data"]["hasMore"] is True

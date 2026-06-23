@@ -115,7 +115,7 @@ describe('SystemManagementView', () => {
     getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, max_requested_permutations: 250, max_round_log_rows: 0 }, metadata: [] } });
     getSystemEventsMock.mockResolvedValue({ ok: true, data: { items: [] } });
     getBTCUSDTMetadataMock.mockResolvedValueOnce({ ok: true, data: { latestTimestamp: '2026-01-01T00:00:00Z', earliestTimestamp: '2026-01-01T00:00:00Z' } });
-    catchUpBTCUSDTKlinesMock.mockResolvedValue({ ok: true, data: { updatedRows: 1, range: { start: '2026-01-01T00:00:00Z', end: '2026-01-01T00:01:00Z' } } });
+    catchUpBTCUSDTKlinesMock.mockResolvedValue({ ok: true, data: { updatedRows: 1, hasMore: true, range: { start: '2026-01-01T00:00:00Z', end: '2026-01-01T00:01:00Z' } } });
     clearBTCUSDTKlinesMock.mockResolvedValue({ ok: true, data: { clearedRows: 2 } });
 
     render(<SystemManagementView />);
@@ -125,7 +125,21 @@ describe('SystemManagementView', () => {
     expect(screen.getByText('Clear data')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /catch up/i }));
-    expect(await screen.findByText('BTCUSDT catch-up completed.')).toBeInTheDocument();
+    expect(await screen.findByText('BTCUSDT catch-up updated 1 rows. Run again to continue.')).toBeInTheDocument();
     expect(catchUpBTCUSDTKlinesMock).toHaveBeenCalled();
+  });
+
+  it('shows BTCUSDT catch-up failures', async () => {
+    getActiveQueueSnapshotMock.mockResolvedValueOnce({ ok: true, data: { queue: { queue_depth: 0, running_jobs: 0, active_jobs_total: 0, active_jobs: [] } } });
+    getSystemSettingsMock.mockResolvedValueOnce({ ok: true, data: { settings: { queue_job_timeout_seconds: 7200, max_requested_permutations: 250, max_round_log_rows: 0 }, metadata: [] } });
+    getSystemEventsMock.mockResolvedValue({ ok: true, data: { items: [] } });
+    catchUpBTCUSDTKlinesMock.mockRejectedValue(new Error('Request failed with status 504'));
+
+    render(<SystemManagementView />);
+
+    expect(await screen.findByText('BTCUSDT Data Controls')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /catch up/i }));
+
+    expect(await screen.findByText('Request failed with status 504')).toBeInTheDocument();
   });
 });

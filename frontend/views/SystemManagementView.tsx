@@ -153,10 +153,16 @@ export function SystemManagementView() {
 
   const runCatchUp = async () => {
     setMarketActionMessage(null);
-    await catchUpBTCUSDTKlines();
-    setMarketActionMessage('BTCUSDT catch-up completed.');
-    notifyBTCUSDTCacheUpdated();
-    refreshNow();
+    try {
+      const response = await catchUpBTCUSDTKlines();
+      const rows = response.data?.updatedRows ?? 0;
+      const suffix = response.data?.hasMore ? ' Run again to continue.' : '';
+      setMarketActionMessage(`BTCUSDT catch-up updated ${rows} rows.${suffix}`);
+      notifyBTCUSDTCacheUpdated();
+      refreshNow();
+    } catch (error) {
+      setMarketActionMessage(error instanceof Error ? error.message : 'BTCUSDT catch-up failed.');
+    }
   };
 
   const clearData = async () => {

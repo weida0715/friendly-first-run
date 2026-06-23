@@ -930,6 +930,7 @@ export interface BTCUSDTAdminActionResponse {
   data?: {
     updatedRows?: number;
     clearedRows?: number;
+    hasMore?: boolean;
     range?: {
       start?: string | null;
       end?: string | null;
