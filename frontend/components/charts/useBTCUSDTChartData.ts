@@ -2,16 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { ApiClientError, getBTCUSDTKlines, getBTCUSDTMetadata } from "@/lib/api/client";
+import { ApiClientError, getBTCUSDTKlines } from "@/lib/api/client";
 
 import type { BTCUSDTChartPoint } from "./BTCUSDTPriceChart";
 import { normalizeAscUnique, subscribeBTCUSDTCacheUpdates } from "./utils";
 
 const KLINE_FETCH_LIMIT = 2000;
-const LIVE_POLL_LIMIT = 4;
-const LIVE_METADATA_POLL_MS = 15000;
-const LIVE_DATA_POLL_MS = 60000;
-
 export interface BTCUSDTChartRange {
   start: string;
   end: string;
@@ -30,7 +26,6 @@ export function useBTCUSDTChartData(range?: BTCUSDTChartRange) {
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasMoreOlder, setHasMoreOlder] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [liveModeEnabled, setLiveModeEnabled] = useState(false);
   const dataRef = useRef<BTCUSDTChartPoint[]>([]);
   const loadingRef = useRef<boolean>(true);
   const loadingOlderRef = useRef<boolean>(false);
@@ -83,7 +78,7 @@ export function useBTCUSDTChartData(range?: BTCUSDTChartRange) {
     loadingRef.current = loading;
     loadingOlderRef.current = loadingOlder;
     hasMoreOlderRef.current = hasMoreOlder;
-  }, [data, hasMoreOlder, loading, loadingOlder, liveModeEnabled]);
+  }, [data, hasMoreOlder, loading, loadingOlder]);
 
   useEffect(() => {
     return () => {
@@ -100,94 +95,6 @@ export function useBTCUSDTChartData(range?: BTCUSDTChartRange) {
       void loadRange();
     });
   }, [loadRange]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const syncMetadata = async () => {
-      try {
-        const response = await getBTCUSDTMetadata();
-        if (!cancelled) {
-          setLiveModeEnabled(Boolean(response.data?.liveMode?.enabled));
-        }
-      } catch {
-        if (!cancelled) {
-          setLiveModeEnabled(false);
-        }
-      }
-    };
-
-    void syncMetadata();
-    const timer = setInterval(() => {
-      void syncMetadata();
-    }, LIVE_METADATA_POLL_MS);
-
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!liveModeEnabled) {
-      return undefined;
-    }
-
-    let cancelled = false;
-
-    const mergeLatest = async () => {
-      try {
-        const response = await getBTCUSDTKlines({
-          limit: LIVE_POLL_LIMIT,
-          interval: "1m",
-        });
-        if (cancelled) return;
-        const latest = normalizeAscUnique(response.data?.items ?? []);
-        setData((prev) => {
-          if (!latest.length) {
-            return prev.length ? [] : prev;
-          }
-          if (!prev.length) {
-            return latest;
-          }
-
-          const prevLast = Number(prev[prev.length - 1]?.time);
-          const latestLast = Number(latest[latest.length - 1]?.time);
-          if (latestLast < prevLast) {
-            return prev;
-          }
-
-          const next = prev.slice();
-          for (const point of latest) {
-            const pointTime = Number(point.time);
-            if (pointTime < prevLast) {
-              continue;
-            }
-            const existingIndex = next.findIndex((item) => Number(item.time) === pointTime);
-            if (existingIndex >= 0) {
-              next[existingIndex] = point;
-            } else {
-              next.push(point);
-            }
-          }
-          return normalizeAscUnique(next);
-        });
-      } catch (err) {
-        if (!cancelled) {
-          console.error("Failed to refresh live BTCUSDT candles:", err);
-        }
-      }
-    };
-
-    void mergeLatest();
-    const timer = setInterval(() => {
-      void mergeLatest();
-    }, LIVE_DATA_POLL_MS);
-
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [liveModeEnabled]);
 
   const loadOlder = useCallback(async (): Promise<void> => {
     if (loadingRef.current || loadingOlderRef.current || !hasMoreOlderRef.current || dataRef.current.length === 0) return;
@@ -213,5 +120,5 @@ export function useBTCUSDTChartData(range?: BTCUSDTChartRange) {
     }
   }, []);
 
-  return { data, loading, loadingOlder, hasMoreOlder, loadOlder, error, range: resolvedRange, liveModeEnabled };
+  return { data, loading, loadingOlder, hasMoreOlder, loadOlder, error, range: resolvedRange };
 }

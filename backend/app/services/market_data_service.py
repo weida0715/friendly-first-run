@@ -38,6 +38,8 @@ class MarketDataService:
         self._unit_of_work_factory = unit_of_work_factory
 
     def refresh_btcusdt_1m(self, start: datetime, end: datetime) -> RefreshSummary:
+        start = _ensure_utc_datetime(start)
+        end = _ensure_utc_datetime(end)
         if start >= end:
             raise ValueError("start must be earlier than end")
 
@@ -140,3 +142,9 @@ class MarketDataService:
                 f"Failed to clear BTCUSDT 1m cache: {exc.__class__.__name__}: {exc}") from exc
 
         return cleared
+
+
+def _ensure_utc_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)

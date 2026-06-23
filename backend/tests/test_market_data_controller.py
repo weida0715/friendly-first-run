@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -72,33 +72,6 @@ def _seed_candles() -> None:
                 ),
             ]
         )
-
-
-class _FakeLiveCoordinator:
-    def __init__(self) -> None:
-        self.enabled = False
-        self.refresh_calls: list[tuple[datetime | None, datetime | None]] = []
-        self.clear_calls = 0
-
-    def status(self):
-        return market_data_controller.BTCUSDTLiveModeState(
-            enabled=self.enabled,
-            running=False,
-            last_synced_at=datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
-            last_error=None,
-        )
-
-    def refresh_once(self, *, bootstrap_empty: bool = False):
-        self.refresh_calls.append((None, None))
-        return 1, datetime(2026, 1, 1, 0, 0, tzinfo=UTC), datetime(2026, 1, 1, 0, 1, tzinfo=UTC)
-
-    def set_enabled(self, enabled: bool):
-        self.enabled = enabled
-        return self.status()
-
-    def clear_state(self) -> None:
-        self.clear_calls += 1
-        self.enabled = False
 
 
 def test_market_data_kline_endpoint_returns_cached_items() -> None:
@@ -649,20 +622,19 @@ def test_market_data_admin_controls_require_admin() -> None:
     login = client.post("/api/auth/login", json={"email": "userops@example.com", "password": "securepass"})
     cookie = login.headers.get("Set-Cookie").split(";", 1)[0]
 
-    response = client.post("/api/market-data/btcusdt/admin/live-mode", json={"enabled": True}, headers={"Cookie": cookie})
+    response = client.post("/api/market-data/btcusdt/admin/catch-up", headers={"Cookie": cookie})
     assert response.status_code == 403
 
 
-def test_market_data_metadata_includes_live_mode_state(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_market_data_metadata_includes_cached_timestamp_bounds() -> None:
     client = _client()
-    monkeypatch.setattr(market_data_controller, "_LIVE_REFRESH_COORDINATOR", _FakeLiveCoordinator())
 
     response = client.get("/api/market-data/btcusdt/metadata")
 
     assert response.status_code == 200
     body = response.get_json()["data"]
-    assert body["liveMode"]["enabled"] is False
-    assert body["liveMode"]["lastSyncedAt"] == "2026-01-01T00:00:00+00:00"
+    assert body["latestTimestamp"] is None
+    assert body["earliestTimestamp"] is None
 
 
 def test_market_data_admin_catch_up_uses_latest_cached_timestamp(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -670,71 +642,68 @@ def test_market_data_admin_catch_up_uses_latest_cached_timestamp(monkeypatch: py
     _seed_candles()
     admin_cookie = _register_and_login_admin(client, "admincatch", "admincatch@example.com")
 
-    class CatchUpCoordinator:
-        def status(self):
-            return market_data_controller.BTCUSDTLiveModeState(
-                enabled=False,
-                running=False,
-                last_synced_at=None,
-                last_error=None,
-            )
+    captured: dict[str, datetime] = {}
 
-        def refresh_once(self, *, bootstrap_empty: bool = False):
+    class FakeService:
+        def get_latest_cached_btcusdt_1m_timestamp(self):
             with UnitOfWork() as uow:
                 latest = uow.market_data.get_latest_timestamp() if uow.market_data else None
-            assert latest is not None
-            latest_utc = latest if latest.tzinfo is not None else latest.replace(tzinfo=UTC)
-            start = latest_utc + timedelta(minutes=1)
-            end = datetime(2026, 1, 1, 0, 3, tzinfo=UTC)
-            return 1, start, end
+            return latest if latest is None or latest.tzinfo is not None else latest.replace(tzinfo=UTC)
 
-        def set_enabled(self, enabled: bool):
-            return self.status()
+        def refresh_btcusdt_1m(self, start: datetime, end: datetime):
+            captured["start"] = start
+            captured["end"] = end
+            return type("Summary", (), {"inserted": 1, "updated": 0})()
 
-        def clear_state(self) -> None:
-            return None
-
-    monkeypatch.setattr(market_data_controller, "_LIVE_REFRESH_COORDINATOR", CatchUpCoordinator())
+    monkeypatch.setattr(market_data_controller, "MarketDataService", FakeService)
 
     response = client.post("/api/market-data/btcusdt/admin/catch-up", headers={"Cookie": admin_cookie})
 
     assert response.status_code == 200
     body = response.get_json()["data"]
     assert body["range"]["start"] == "2026-01-01T00:02:00+00:00"
-    assert body["range"]["end"] == "2026-01-01T00:03:00+00:00"
-
-
-def test_market_data_admin_live_mode_toggle_updates_state(monkeypatch: pytest.MonkeyPatch) -> None:
-    client = _client()
-    admin_cookie = _register_and_login_admin(client, "adminlive", "adminlive@example.com")
-    coordinator = _FakeLiveCoordinator()
-    monkeypatch.setattr(market_data_controller, "_LIVE_REFRESH_COORDINATOR", coordinator)
-
-    response = client.post(
-        "/api/market-data/btcusdt/admin/live-mode",
-        json={"enabled": True},
-        headers={"Cookie": admin_cookie},
-    )
-
-    assert response.status_code == 200
-    assert coordinator.enabled is True
-    assert response.get_json()["data"]["status"]["enabled"] is True
+    assert captured["start"] == datetime(2026, 1, 1, 0, 2, tzinfo=UTC)
+    assert captured["end"] >= captured["start"]
 
 
 def test_market_data_admin_clear_data_deletes_cached_rows(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client()
     _seed_candles()
     admin_cookie = _register_and_login_admin(client, "adminclear", "adminclear@example.com")
-    coordinator = _FakeLiveCoordinator()
-    monkeypatch.setattr(market_data_controller, "_LIVE_REFRESH_COORDINATOR", coordinator)
 
     response = client.delete("/api/market-data/btcusdt/admin/klines", headers={"Cookie": admin_cookie})
 
     assert response.status_code == 200
-    assert coordinator.clear_calls == 1
     with UnitOfWork() as uow:
         assert uow.market_data.count_range(
             datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
             datetime(2026, 1, 1, 0, 2, tzinfo=UTC),
             interval="1m",
         ) == 0
+
+
+def test_market_data_admin_catch_up_after_clear_defaults_to_earliest_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client()
+    _seed_candles()
+    admin_cookie = _register_and_login_admin(client, "adminretry", "adminretry@example.com")
+
+    response = client.delete("/api/market-data/btcusdt/admin/klines", headers={"Cookie": admin_cookie})
+    assert response.status_code == 200
+
+    captured: dict[str, datetime] = {}
+
+    class FakeService:
+        def get_latest_cached_btcusdt_1m_timestamp(self):
+            return None
+
+        def refresh_btcusdt_1m(self, start: datetime, end: datetime):
+            captured["start"] = start
+            captured["end"] = end
+            return type("Summary", (), {"inserted": 2, "updated": 0})()
+
+    monkeypatch.setattr(market_data_controller, "MarketDataService", FakeService)
+
+    response = client.post("/api/market-data/btcusdt/admin/catch-up", headers={"Cookie": admin_cookie})
+
+    assert response.status_code == 200
+    assert captured["start"] == datetime(2017, 8, 17, 0, 0, tzinfo=UTC)

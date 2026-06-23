@@ -918,15 +918,7 @@ export interface BTCUSDTMetadataResponse {
     interval: '1m';
     latestTimestamp?: string | null;
     earliestTimestamp?: string | null;
-    liveMode?: BTCUSDTLiveModeState;
   };
-}
-
-export interface BTCUSDTLiveModeState {
-  enabled?: boolean;
-  running?: boolean;
-  lastSyncedAt?: string | null;
-  lastError?: string | null;
 }
 
 export function getBTCUSDTMetadata(): Promise<BTCUSDTMetadataResponse> {
@@ -936,7 +928,6 @@ export function getBTCUSDTMetadata(): Promise<BTCUSDTMetadataResponse> {
 export interface BTCUSDTAdminActionResponse {
   ok: boolean;
   data?: {
-    status?: BTCUSDTLiveModeState;
     updatedRows?: number;
     clearedRows?: number;
     range?: {
@@ -948,10 +939,6 @@ export interface BTCUSDTAdminActionResponse {
 
 export function catchUpBTCUSDTKlines(): Promise<BTCUSDTAdminActionResponse> {
   return apiPost<BTCUSDTAdminActionResponse>(API_ENDPOINTS.marketData.btcusdtCatchUp);
-}
-
-export function setBTCUSDTLiveMode(enabled: boolean): Promise<BTCUSDTAdminActionResponse> {
-  return apiPost<BTCUSDTAdminActionResponse>(API_ENDPOINTS.marketData.btcusdtLiveMode, { enabled });
 }
 
 export function clearBTCUSDTKlines(): Promise<BTCUSDTAdminActionResponse> {

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import threading
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -31,6 +29,7 @@ blueprint = Blueprint("market_data", __name__)
 
 DEFAULT_API_KLINE_LIMIT = 5000
 MAX_API_KLINE_LIMIT = 20000
+DEFAULT_BTCUSDT_1M_START = datetime(2017, 8, 17, tzinfo=UTC)
 
 SUPPORTED_PREVIEW_INTERVALS = tuple(MarketDataRepository.SUPPORTED_INTERVALS.keys())
 INTERVAL_MINUTES = {
@@ -44,133 +43,6 @@ INTERVAL_MINUTES = {
     "1d": 1440,
 }
 MAX_TARGET_PREVIEW_RAW_ROWS = 12000
-BTCUSDT_LIVE_REFRESH_SECONDS = 60
-
-
-@dataclass(slots=True)
-class BTCUSDTLiveModeState:
-    enabled: bool
-    running: bool
-    last_synced_at: datetime | None
-    last_error: str | None
-
-
-class BTCUSDTLiveRefreshCoordinator:
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._stop_event = threading.Event()
-        self._thread: threading.Thread | None = None
-        self._enabled = False
-        self._running = False
-        self._last_synced_at: datetime | None = None
-        self._last_error: str | None = None
-
-    def status(self) -> BTCUSDTLiveModeState:
-        with self._lock:
-            return BTCUSDTLiveModeState(
-                enabled=self._enabled,
-                running=self._running,
-                last_synced_at=self._last_synced_at,
-                last_error=self._last_error,
-            )
-
-    def set_enabled(self, enabled: bool) -> BTCUSDTLiveModeState:
-        thread_to_join: threading.Thread | None = None
-        with self._lock:
-            self._enabled = enabled
-            if enabled:
-                self._stop_event.clear()
-                if self._thread is None or not self._thread.is_alive():
-                    self._thread = threading.Thread(
-                        target=self._run,
-                        name="btcusdt-live-refresh",
-                        daemon=True,
-                    )
-                    self._thread.start()
-            else:
-                self._stop_event.set()
-                thread_to_join = self._thread
-        if thread_to_join is not None and thread_to_join.is_alive():
-            thread_to_join.join(timeout=5.0)
-        return self.status()
-
-    def clear_state(self) -> None:
-        with self._lock:
-            self._enabled = False
-            self._running = False
-            self._last_error = None
-            self._last_synced_at = None
-            self._stop_event.set()
-        thread = self._thread
-        if thread is not None and thread.is_alive():
-            thread.join(timeout=5.0)
-
-    def refresh_once(self, *, bootstrap_empty: bool = False) -> tuple[int, datetime | None, datetime | None]:
-        with UnitOfWork() as uow:
-            latest = uow.market_data.get_latest_timestamp() if uow.market_data else None
-
-        if latest is None:
-            if not bootstrap_empty:
-                with self._lock:
-                    self._last_synced_at = datetime.now(UTC)
-                    self._last_error = None
-                return 0, None, None
-            start = datetime.now(UTC) - timedelta(minutes=1)
-        else:
-            start = latest + timedelta(minutes=1)
-
-        end = datetime.now(UTC)
-        if start >= end:
-            with self._lock:
-                self._last_synced_at = end
-                self._last_error = None
-            return 0, start, end
-
-        service = MarketDataService()
-        summary = service.refresh_btcusdt_1m(start=start, end=end)
-        with self._lock:
-            self._last_synced_at = datetime.now(UTC)
-            self._last_error = None
-        return summary.inserted + summary.updated, start, end
-
-    def _run(self) -> None:
-        while True:
-            with self._lock:
-                if not self._enabled or self._stop_event.is_set():
-                    self._running = False
-                    self._thread = None
-                    return
-                self._running = True
-
-            try:
-                self.refresh_once(bootstrap_empty=True)
-            except MarketDataRefreshError as exc:
-                with self._lock:
-                    self._last_error = str(exc)
-            except Exception as exc:  # pragma: no cover - defensive background guard
-                with self._lock:
-                    self._last_error = f"{exc.__class__.__name__}: {exc}"
-            finally:
-                with self._lock:
-                    self._running = False
-
-            if self._stop_event.wait(BTCUSDT_LIVE_REFRESH_SECONDS):
-                with self._lock:
-                    self._thread = None
-                return
-
-
-_LIVE_REFRESH_COORDINATOR = BTCUSDTLiveRefreshCoordinator()
-
-
-def _live_status_payload() -> dict[str, object]:
-    state = _LIVE_REFRESH_COORDINATOR.status()
-    return {
-        "enabled": state.enabled,
-        "running": state.running,
-        "lastSyncedAt": state.last_synced_at.isoformat() if state.last_synced_at else None,
-        "lastError": state.last_error,
-    }
 
 
 def _require_admin_access():
@@ -861,7 +733,6 @@ def get_btcusdt_metadata():
                 "interval": "1m",
                 "latestTimestamp": latest.isoformat() + "Z" if latest else None,
                 "earliestTimestamp": earliest.isoformat() + "Z" if earliest else None,
-                "liveMode": _live_status_payload(),
             }
         }
     )
@@ -874,7 +745,25 @@ def catch_up_btcusdt_cache():
         return error
 
     try:
-        inserted_or_updated, start, end = _LIVE_REFRESH_COORDINATOR.refresh_once()
+        service = MarketDataService()
+        latest = service.get_latest_cached_btcusdt_1m_timestamp()
+        start = latest + timedelta(minutes=1) if latest is not None else DEFAULT_BTCUSDT_1M_START
+        end = datetime.now(UTC)
+        if start >= end:
+            return ok_response(
+                {
+                    "data": {
+                        "status": "no-op",
+                        "updatedRows": 0,
+                        "range": {
+                            "start": start.isoformat(),
+                            "end": end.isoformat(),
+                        },
+                    }
+                }
+            )
+        summary = service.refresh_btcusdt_1m(start=start, end=end)
+        inserted_or_updated = summary.inserted + summary.updated
     except MarketDataRefreshError as exc:
         return error_response(str(exc), status_code=500, code="BTCUSDT_REFRESH_FAILED")
 
@@ -882,42 +771,19 @@ def catch_up_btcusdt_cache():
         scope="market_data",
         action="BTCUSDT cache catch-up",
         actor=actor,
-        message=f"Catch-up requested from {start.isoformat() if start else 'no-cache'} to {end.isoformat() if end else 'no-op'}",
+        message=f"Catch-up requested from {start.isoformat()} to {end.isoformat()}",
     )
     return ok_response(
         {
             "data": {
-                "status": _live_status_payload(),
                 "updatedRows": inserted_or_updated,
                 "range": {
-                    "start": start.isoformat() if start else None,
-                    "end": end.isoformat() if end else None,
+                    "start": start.isoformat(),
+                    "end": end.isoformat(),
                 },
             }
         }
     )
-
-
-@blueprint.post("/btcusdt/admin/live-mode")
-def set_btcusdt_live_mode():
-    _, actor, error = _require_admin_access()
-    if error is not None:
-        return error
-
-    payload = request.get_json(silent=True) or {}
-    enabled = payload.get("enabled")
-    if not isinstance(enabled, bool):
-        return validation_error_response({"enabled": "enabled must be a boolean"}, status_code=400)
-
-    _LIVE_REFRESH_COORDINATOR.set_enabled(enabled)
-    action = "BTCUSDT live mode enabled" if enabled else "BTCUSDT live mode disabled"
-    SystemController.record_event(
-        scope="market_data",
-        action=action,
-        actor=actor,
-        message=f"Live mode set to {str(enabled).lower()}",
-    )
-    return ok_response({"data": {"status": _live_status_payload()}})
 
 
 @blueprint.delete("/btcusdt/admin/klines")
@@ -926,7 +792,6 @@ def clear_btcusdt_cache():
     if error is not None:
         return error
 
-    _LIVE_REFRESH_COORDINATOR.clear_state()
     service = MarketDataService()
     try:
         cleared = service.clear_btcusdt_1m_cache()
@@ -943,7 +808,6 @@ def clear_btcusdt_cache():
         {
             "data": {
                 "clearedRows": cleared,
-                "status": _live_status_payload(),
             }
         }
     )

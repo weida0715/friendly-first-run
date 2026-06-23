@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from 'react';
-import { Pause, Play, RefreshCcw, Trash2 } from 'lucide-react';
+import { RefreshCcw, Trash2 } from 'lucide-react';
 import { BaseView } from './BaseView';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,7 +15,6 @@ import {
   getSystemEvents,
   getSystemEventsDownloadUrl,
   getSystemSettings,
-  setBTCUSDTLiveMode,
   updateSystemSettings,
 } from '@/lib/api/client';
 import { notifyBTCUSDTCacheUpdated } from '@/components/charts/utils';
@@ -34,17 +33,9 @@ type QueueSnapshot = {
   active_jobs: QueueJob[];
 };
 
-type BTCUSDTLiveModeState = {
-  enabled?: boolean;
-  running?: boolean;
-  lastSyncedAt?: string | null;
-  lastError?: string | null;
-};
-
 type BTCUSDTMetadata = {
   latestTimestamp?: string | null;
   earliestTimestamp?: string | null;
-  liveMode?: BTCUSDTLiveModeState;
 };
 
 const SYSTEM_TERMINAL_REFRESH_MS = 5000;
@@ -168,14 +159,6 @@ export function SystemManagementView() {
     refreshNow();
   };
 
-  const toggleLiveMode = async (enabled: boolean) => {
-    setMarketActionMessage(null);
-    await setBTCUSDTLiveMode(enabled);
-    setMarketActionMessage(enabled ? 'BTCUSDT live mode enabled.' : 'BTCUSDT live mode disabled.');
-    notifyBTCUSDTCacheUpdated();
-    refreshNow();
-  };
-
   const clearData = async () => {
     setMarketActionMessage(null);
     const response = await clearBTCUSDTKlines();
@@ -183,9 +166,6 @@ export function SystemManagementView() {
     notifyBTCUSDTCacheUpdated();
     refreshNow();
   };
-
-  const liveModeEnabled = Boolean(marketData?.liveMode?.enabled);
-  const liveModeRunning = Boolean(marketData?.liveMode?.running);
 
   return (
     <BaseView
@@ -220,22 +200,16 @@ export function SystemManagementView() {
         <Card className="bg-gradient-card">
           <CardHeader>
             <CardTitle>BTCUSDT Data Controls</CardTitle>
-            <CardDescription>Catch up the cache, enable live ingestion, or clear the BTCUSDT 1m history.</CardDescription>
+            <CardDescription>Catch up the cache or clear the BTCUSDT 1m history.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <Button onClick={runCatchUp} variant="outline"><RefreshCcw className="mr-2 h-4 w-4" />Catch up</Button>
-              <Button onClick={() => void toggleLiveMode(!liveModeEnabled)} variant={liveModeEnabled ? 'default' : 'outline'}>
-                {liveModeEnabled ? <Pause className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
-                {liveModeEnabled ? 'Disable live mode' : 'Enable live mode'}
-              </Button>
               <Button onClick={clearData} variant="destructive"><Trash2 className="mr-2 h-4 w-4" />Clear data</Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Latest cached candle: {marketData?.latestTimestamp ?? 'none'} · live mode: {liveModeEnabled ? 'on' : 'off'}{liveModeRunning ? ' (running)' : ''}
+              Latest cached candle: {marketData?.latestTimestamp ?? 'none'} · earliest cached candle: {marketData?.earliestTimestamp ?? 'none'}
             </p>
-            {marketData?.liveMode?.lastSyncedAt ? <p className="text-xs text-muted-foreground">Last sync: {marketData.liveMode.lastSyncedAt}</p> : null}
-            {marketData?.liveMode?.lastError ? <p className="text-xs text-destructive">{marketData.liveMode.lastError}</p> : null}
             {marketActionMessage ? <p className="text-sm text-muted-foreground">{marketActionMessage}</p> : null}
           </CardContent>
         </Card>
