@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -135,3 +135,42 @@ def test_upsert_klines_empty_and_interval_validation() -> None:
     now = datetime(2026, 1, 1, 0, 0, 0)
     with pytest.raises(ValueError, match="Only BTCUSDT 1m interval is supported"):
         repo.list_range(now, now + timedelta(minutes=1), interval="5m")
+
+
+def test_postgres_projection_uses_epoch_bucket_and_naive_utc_bounds() -> None:
+    class _Dialect:
+        name = "postgresql"
+
+    class _Bind:
+        dialect = _Dialect()
+
+    class _Result:
+        def all(self):
+            return []
+
+    class _Session:
+        bind = _Bind()
+
+        def __init__(self) -> None:
+            self.sql = ""
+            self.params = {}
+
+        def execute(self, sql, params):  # noqa: ANN001
+            self.sql = str(sql)
+            self.params = params
+            return _Result()
+
+    session = _Session()
+    repo = MarketDataRepository(session)
+
+    repo.list_range_projection(
+        datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+        datetime(2026, 1, 2, 0, 0, tzinfo=UTC),
+        interval="1h",
+    )
+
+    assert "date_bin" not in session.sql
+    assert "to_timestamp" in session.sql
+    assert session.params["interval_seconds"] == 3600
+    assert session.params["start_time"].tzinfo is None
+    assert session.params["end_time"].tzinfo is None

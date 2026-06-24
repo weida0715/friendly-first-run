@@ -1,4 +1,4 @@
-# Changelog
+# -Changelog
 
 All notable changes to the Bitcoin Experimental Engine (BEE) project will be documented in this file.
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,13 +17,14 @@ class BacktestResult:
     trades: list[dict[str, Any]]
 
 
-class TradingStrategy:
+class TradingStrategy(ABC):
     """Defines how predictions are translated into trading outcomes."""
 
+    @abstractmethod
     def run(
         self,
         test_df: pl.LazyFrame,
         preds: dict[str, Any],
         cfg: dict[str, Any],
     ) -> BacktestResult:
-        raise NotImplementedError
+        ...

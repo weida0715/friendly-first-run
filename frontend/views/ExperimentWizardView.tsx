@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { PointerEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { WizardView } from './WizardView';
-import { CircleHelp, Info, X } from 'lucide-react';
+import { Calendar, CircleHelp, Info, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -571,6 +572,12 @@ function mean(values: number[]) {
   return values.reduce((total, value) => total + value, 0) / values.length;
 }
 
+function openDatetimePicker(inputId: string) {
+  const input = document.getElementById(inputId) as (HTMLInputElement & { showPicker?: () => void }) | null;
+  input?.showPicker?.();
+  input?.focus();
+}
+
 function TargetEntryAlignedForwardReturnCurve({ rows }: { rows: NonNullable<BTCUSDTTargetPreviewResponse['data']>['rows'] }) {
   const width = 840;
   const height = 220;
@@ -681,6 +688,8 @@ function SplitRangeBar({
   test: number;
   onChange: (splits: { train: number; validation: number; test: number }) => void;
 }) {
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const activeDragRef = useRef<'train' | 'test' | null>(null);
   const firstBoundary = Number.isFinite(train) ? train : 80;
   const secondBoundary = Number.isFinite(train + validation) ? train + validation : 90;
 
@@ -692,6 +701,29 @@ function SplitRangeBar({
       validation: testBoundary - trainBoundary,
       test: 100 - testBoundary,
     });
+  }
+
+  function applyPointerBoundary(kind: 'train' | 'test', clientX: number) {
+    const rect = trackRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const percent = ((clientX - rect.left) / rect.width) * 100;
+    if (kind === 'train') applyBoundaries(percent, secondBoundary);
+    else applyBoundaries(firstBoundary, percent);
+  }
+
+  function startDrag(kind: 'train' | 'test', event: PointerEvent<HTMLDivElement>) {
+    activeDragRef.current = kind;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    applyPointerBoundary(kind, event.clientX);
+  }
+
+  function moveDrag(event: PointerEvent<HTMLDivElement>) {
+    if (!activeDragRef.current) return;
+    applyPointerBoundary(activeDragRef.current, event.clientX);
+  }
+
+  function stopDrag() {
+    activeDragRef.current = null;
   }
 
   return (
@@ -707,6 +739,27 @@ function SplitRangeBar({
           <div className="absolute inset-y-0 bg-amber-500" style={{ left: `${firstBoundary}%`, width: `${secondBoundary - firstBoundary}%` }} />
           <div className="absolute inset-y-0 right-0 bg-emerald-500" style={{ width: `${100 - secondBoundary}%` }} />
         </div>
+        <div ref={trackRef} className="absolute inset-x-0 top-2 h-9" />
+        <div
+          aria-hidden="true"
+          title="Drag train validation split"
+          onPointerDown={(event) => startDrag('train', event)}
+          onPointerMove={moveDrag}
+          onPointerUp={stopDrag}
+          onPointerCancel={stopDrag}
+          className="absolute top-1 h-10 w-5 -translate-x-1/2 cursor-ew-resize rounded-md border bg-background shadow-md ring-2 ring-sky-500/30"
+          style={{ left: `${firstBoundary}%` }}
+        />
+        <div
+          aria-hidden="true"
+          title="Drag validation test split"
+          onPointerDown={(event) => startDrag('test', event)}
+          onPointerMove={moveDrag}
+          onPointerUp={stopDrag}
+          onPointerCancel={stopDrag}
+          className="absolute top-1 h-10 w-5 -translate-x-1/2 cursor-ew-resize rounded-md border bg-background shadow-md ring-2 ring-emerald-500/30"
+          style={{ left: `${secondBoundary}%` }}
+        />
         <input
           aria-label="Train validation split boundary"
           type="range"
@@ -715,7 +768,7 @@ function SplitRangeBar({
           step={1}
           value={firstBoundary}
           onChange={(event) => applyBoundaries(Number(event.target.value), secondBoundary)}
-          className="pointer-events-none absolute inset-x-0 top-2 h-8 w-full appearance-none bg-transparent [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:h-7 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:cursor-ew-resize [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:bg-background [&::-moz-range-thumb]:shadow [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:cursor-ew-resize [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:bg-background [&::-webkit-slider-thumb]:shadow"
+          className="sr-only"
         />
         <input
           aria-label="Validation test split boundary"
@@ -725,7 +778,7 @@ function SplitRangeBar({
           step={1}
           value={secondBoundary}
           onChange={(event) => applyBoundaries(firstBoundary, Number(event.target.value))}
-          className="pointer-events-none absolute inset-x-0 top-2 h-8 w-full appearance-none bg-transparent [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:h-7 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:cursor-ew-resize [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:bg-background [&::-moz-range-thumb]:shadow [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:cursor-ew-resize [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:bg-background [&::-webkit-slider-thumb]:shadow"
+          className="sr-only"
         />
       </div>
       <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
@@ -1531,19 +1584,24 @@ export function ExperimentWizardView() {
                   {draft.datasetMode === 'datetime-range' ? (
                   <div className="space-y-2">
                     <Label htmlFor="start-datetime">Start Datetime</Label>
-                    <Input
-                      id="start-datetime"
-                      aria-label="Start Datetime"
-                      type="datetime-local"
-                      step="60"
-                      min={marketRange.earliest ?? undefined}
-                      max={marketRange.latest ?? undefined}
-                      value={draft.startDateTime}
-                      onChange={(event) => {
-                        setDraft((prev) => ({ ...prev, startDateTime: event.target.value }));
-                        setErrors((prev) => ({ ...prev, startDateTime: undefined, dateRange: undefined }));
-                      }}
-                    />
+                    <div className="flex gap-2">
+                      <Input
+                        id="start-datetime"
+                        aria-label="Start Datetime"
+                        type="datetime-local"
+                        step="60"
+                        min={marketRange.earliest ?? undefined}
+                        max={marketRange.latest ?? undefined}
+                        value={draft.startDateTime}
+                        onChange={(event) => {
+                          setDraft((prev) => ({ ...prev, startDateTime: event.target.value }));
+                          setErrors((prev) => ({ ...prev, startDateTime: undefined, dateRange: undefined }));
+                        }}
+                      />
+                      <Button type="button" variant="outline" size="icon" aria-label="Open start datetime picker" onClick={() => openDatetimePicker('start-datetime')}>
+                        <Calendar className="h-4 w-4" />
+                      </Button>
+                    </div>
                     {errors.startDateTime ? <p className="text-xs text-destructive">{errors.startDateTime}</p> : null}
                   </div>
                   ) : (
@@ -1562,19 +1620,24 @@ export function ExperimentWizardView() {
                   )}
                   <div className="space-y-2">
                     <Label htmlFor="end-datetime">End Datetime</Label>
-                    <Input
-                      id="end-datetime"
-        aria-label="End Datetime"
-                      type="datetime-local"
-                      step="60"
-                      min={marketRange.earliest ?? undefined}
-                      max={marketRange.latest ?? undefined}
-                      value={draft.endDateTime}
-                      onChange={(event) => {
-                        setDraft((prev) => ({ ...prev, endDateTime: event.target.value }));
-                        setErrors((prev) => ({ ...prev, endDateTime: undefined, dateRange: undefined }));
-                      }}
-                    />
+                    <div className="flex gap-2">
+                      <Input
+                        id="end-datetime"
+                        aria-label="End Datetime"
+                        type="datetime-local"
+                        step="60"
+                        min={marketRange.earliest ?? undefined}
+                        max={marketRange.latest ?? undefined}
+                        value={draft.endDateTime}
+                        onChange={(event) => {
+                          setDraft((prev) => ({ ...prev, endDateTime: event.target.value }));
+                          setErrors((prev) => ({ ...prev, endDateTime: undefined, dateRange: undefined }));
+                        }}
+                      />
+                      <Button type="button" variant="outline" size="icon" aria-label="Open end datetime picker" onClick={() => openDatetimePicker('end-datetime')}>
+                        <Calendar className="h-4 w-4" />
+                      </Button>
+                    </div>
                     {errors.endDateTime ? <p className="text-xs text-destructive">{errors.endDateTime}</p> : null}
                   </div>
                 </div>

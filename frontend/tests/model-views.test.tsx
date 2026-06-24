@@ -31,13 +31,16 @@ const model = {
   parameters: {
     architecture: { name: 'ridge', alpha: 1 },
     indicators: [{ name: 'rsi', period: 14 }],
-    split: { train: 0.8 },
+    split: { strategy: 'walk_forward', train: 0.8 },
     target: { horizon: 1 },
     c: 2,
   },
   parameterHash: 'hash-42',
   metrics: { sharpe: 1.25, accuracy: 0.9, precision: 0.8, recall: 0.7, total_return_net_pct: 12, trade_win_rate_pct: 55, maxDrawdown: 8, winRate: 55 },
-  logMetrics: [{ type: 'backtest', max_drawdown_pct: 8, total_return_net_pct: 12, trade_win_rate_pct: 55 }, { type: 'classification', f1: 0.75 }],
+  logMetrics: [
+    { type: 'backtest', max_drawdown_pct: 8, total_return_net_pct: 12, trade_win_rate_pct: 55, trade_return_mean_win_pct: 0.138, trade_return_mean_loss_pct: -0.253, trade_expectancy_pct: 0.005, bars_in_market_pct: 66.5, trades_count: 19677, sharpe_annualized: 2.085 },
+    { type: 'classification', tp_count: 102400, fp_count: 179048, tn_count: 94591, fn_count: 45024, accuracy_pct: 48.278, precision_pct: 36.368, recall_pct: 69.462, f1_score_pct: 47.747, pred_pos_rate_pct: 66.8, actual_pos_rate_pct: 35 },
+  ],
   createdAt: '2026-01-01T00:00:00',
   isFavorited: true,
   detailPath: '/models/42',
@@ -75,7 +78,7 @@ describe('model views', () => {
 
     expect(screen.queryByText('Metric')).not.toBeInTheDocument();
     expect(screen.queryByText('Recall')).not.toBeInTheDocument();
-    expect(screen.getByText('Total Return')).toBeInTheDocument();
+    expect(screen.getAllByText('Total Return').length).toBeGreaterThan(0);
     expect(screen.getByText('Win Rate')).toBeInTheDocument();
     await waitFor(() => expect(getModelHighlightsMock).toHaveBeenCalledWith());
     expect(getModelHighlightsMock).toHaveBeenCalledTimes(1);
@@ -186,15 +189,30 @@ describe('model views', () => {
     render(<ModelDetailView />);
 
     await waitFor(() => expect(screen.getByText('Model #42')).toBeInTheDocument());
-    expect(screen.getByText('Exp A')).toBeInTheDocument();
-    expect(screen.getByText('BP A')).toBeInTheDocument();
-    expect(screen.getByText('hash-42')).toBeInTheDocument();
+    expect(screen.getAllByText('Exp A').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('BP A').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('hash-42').length).toBeGreaterThan(0);
     expect(screen.queryByText('NaN')).not.toBeInTheDocument();
+    expect(screen.getByText('Performance KPI')).toBeInTheDocument();
+    expect(screen.getByText('Confusion Matrix')).toBeInTheDocument();
+    expect(screen.getByText('Classification Bars')).toBeInTheDocument();
+    expect(screen.getByText('Prediction Distribution')).toBeInTheDocument();
+    expect(screen.getByText('Trade Outcome')).toBeInTheDocument();
+    expect(screen.getByText('Backtest Summary')).toBeInTheDocument();
+    expect(screen.getByText('Model Provenance')).toBeInTheDocument();
+    expect(screen.getByText('Indicator Configuration')).toBeInTheDocument();
+    expect(screen.getByText('Risk vs Reward')).toBeInTheDocument();
+    expect(screen.getByText('Model Health Verdict')).toBeInTheDocument();
+    expect(screen.getByText('TP 102400')).toBeInTheDocument();
+    expect(screen.getByText('FP 179048')).toBeInTheDocument();
+    expect(screen.getAllByText('66.500%').length).toBeGreaterThan(0);
+    expect(screen.getByText('-0.253%')).toBeInTheDocument();
+    expect(screen.getAllByText('walk_forward').length).toBeGreaterThan(0);
     expect(screen.getByText('Architecture')).toBeInTheDocument();
     expect(screen.getByText('ridge')).toBeInTheDocument();
     expect(screen.getByText('Backtest Metrics')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'New Experiment' })).toHaveAttribute('href', '/experiments/new?modelId=42');
-    expect(screen.getByText('Total Return')).toBeInTheDocument();
+    expect(screen.getAllByText('Total Return').length).toBeGreaterThan(0);
     expect(screen.getByText('Classification Metrics')).toBeInTheDocument();
     expect(screen.queryByText('[object Object]')).not.toBeInTheDocument();
   });

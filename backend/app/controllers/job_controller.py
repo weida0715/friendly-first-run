@@ -208,18 +208,16 @@ def cancel_job(job_id: str):
         return access_control.forbidden_response("Job is not accessible")
 
     state = str(queue_job.get("state") or "").lower()
-    if state == "queued":
-        cancelled = queue_service.remove_job_from_queue(job_id)
-    elif state == "running":
-        cancelled = queue_service.cancel_running_job(job_id)
-    else:
+    if state not in {"queued", "running"}:
         return error_response(
             f"Job cannot be canceled from state: {state or 'unknown'}",
             409,
             code="JOB_NOT_CANCELLABLE",
         )
 
-    if not cancelled:
+    handler = JobCancellationHandlerRegistry().get(queue_job.get("job_type") or "EXPERIMENT_EXECUTION")
+    result = handler.cancel(job_id, queue_job, queue_service)
+    if not result.get("cancelled"):
         return error_response("Failed to cancel job", 409, code="JOB_CANCEL_FAILED")
 
     return ok_response(

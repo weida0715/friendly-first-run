@@ -38,6 +38,7 @@ jest.mock('@/lib/api/client', () => ({
           endDate: '2026-01-10',
           parameterOverrides: { window: 20 },
           backtestLogs,
+          confusionMetrics: [{ modelId: 1, tp_count: 2, fp_count: 1, tn_count: 3, fn_count: 4, accuracy_pct: 50, precision_pct: 66.7, recall_pct: 33.3, pred_pos_rate_pct: 30, actual_pos_rate_pct: 60 }],
         },
       },
     };
@@ -58,6 +59,7 @@ describe('ExperimentDetailView', () => {
     expect(await screen.findByText('Exp A')).toBeInTheDocument();
     expect(screen.getAllByText('Completed').length).toBeGreaterThan(0);
     expect(await screen.findByRole('button', { name: 'Cancel Experiment' })).toBeInTheDocument();
+    expect(screen.queryByText('Classification Quality')).not.toBeInTheDocument();
   });
 
   it('opens expanded risk chart modal with guidance text', async () => {

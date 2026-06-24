@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
+
 import polars as pl
 
 
-class TargetStrategy:
+class TargetStrategy(ABC):
     target_name: str
     parameter_schema: dict
     parameter_constraints: dict
@@ -13,5 +15,6 @@ class TargetStrategy:
     output_column = "target"
     binary_label_rule: str
 
+    @abstractmethod
     def generate(self, df: pl.LazyFrame) -> pl.LazyFrame:
-        raise NotImplementedError
+        ...

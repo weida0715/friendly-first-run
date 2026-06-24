@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from typing import Any
 
 import polars as pl
@@ -9,9 +10,10 @@ import polars as pl
 from app.strategies.splits.split_result import SplitResult
 
 
-class DataSplitStrategy:
+class DataSplitStrategy(ABC):
+    @abstractmethod
     def split(self, df: pl.LazyFrame, cfg: dict[str, Any]) -> SplitResult:
-        raise NotImplementedError
+        ...
 
 
 def split_percentages(cfg: dict[str, Any]) -> tuple[float, float, float]:

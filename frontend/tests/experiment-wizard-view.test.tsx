@@ -332,6 +332,8 @@ describe('ExperimentWizardView', () => {
     expect(screen.getByLabelText('Start Datetime')).toHaveAttribute('max', '2026-01-10T00:00');
     expect(screen.getByLabelText('End Datetime')).toHaveAttribute('min', '2026-01-01T00:00');
     expect(screen.getByLabelText('End Datetime')).toHaveAttribute('max', '2026-01-10T00:00');
+    expect(screen.getByRole('button', { name: 'Open start datetime picker' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open end datetime picker' })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Start Datetime'), { target: { value: '2025-12-31T23:00' } });
     fireEvent.change(screen.getByLabelText('End Datetime'), { target: { value: '2026-01-10T00:00' } });
@@ -390,6 +392,8 @@ describe('ExperimentWizardView', () => {
 
     fireEvent.change(screen.getByLabelText('Validation test split boundary'), { target: { value: '95' } });
 
+    expect(screen.getByTitle('Drag train validation split')).toBeInTheDocument();
+    expect(screen.getByTitle('Drag validation test split')).toBeInTheDocument();
     expect(screen.getByText('80%')).toBeInTheDocument();
     expect(screen.getAllByText('10%')).toHaveLength(2);
   });

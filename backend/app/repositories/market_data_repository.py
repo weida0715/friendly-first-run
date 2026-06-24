@@ -33,6 +33,16 @@ class MarketDataRepository:
         "4h": "4 hours",
         "1d": "1 day",
     }
+    SUPPORTED_INTERVAL_SECONDS = {
+        "1m": 60,
+        "5m": 5 * 60,
+        "15m": 15 * 60,
+        "30m": 30 * 60,
+        "1h": 60 * 60,
+        "2h": 2 * 60 * 60,
+        "4h": 4 * 60 * 60,
+        "1d": 24 * 60 * 60,
+    }
 
     def __init__(self, session: Session) -> None:
         self._session = session
@@ -196,12 +206,14 @@ class MarketDataRepository:
         if interval not in self.SUPPORTED_INTERVALS:
             raise ValueError(f"Unsupported BTCUSDT interval: {interval}")
 
+        start = self._normalize_utc_naive(start)
+        end = self._normalize_utc_naive(end)
         dialect = self._session.bind.dialect.name if self._session.bind else ""
         if interval != "1m" and dialect == "postgresql":
             sql = text("""
                 WITH bucketed AS (
                     SELECT
-                        date_bin(CAST(:interval AS interval), "Timestamp", TIMESTAMP '1970-01-01') AS bucket,
+                        (to_timestamp(floor(extract(epoch FROM "Timestamp") / :interval_seconds) * :interval_seconds) AT TIME ZONE 'UTC') AS bucket,
                         "Timestamp",
                         "Open",
                         "High",
@@ -231,7 +243,7 @@ class MarketDataRepository:
                 ORDER BY bucket
             """)
             rows = self._session.execute(sql, {
-                "interval": self.SUPPORTED_INTERVALS[interval],
+                "interval_seconds": self.SUPPORTED_INTERVAL_SECONDS[interval],
                 "start_time": start,
                 "end_time": end,
             }).all()

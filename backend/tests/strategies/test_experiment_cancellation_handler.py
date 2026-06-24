@@ -18,12 +18,6 @@ def test_experiment_cancellation_handler_supports_experiment_type() -> None:
     assert handler.supports("OTHER") is False
 
 
-def test_experiment_cancellation_handler_rejects_non_queued_state() -> None:
-    handler = ExperimentCancellationHandler()
-    with pytest.raises(ValueError, match="queued"):
-        handler.cancel({"state": "running"})
-
-
 def test_registry_resolves_handler_by_job_type() -> None:
     registry = JobCancellationHandlerRegistry(
         [ExperimentCancellationHandler()])
@@ -36,3 +30,8 @@ def test_registry_raises_for_unknown_job_type() -> None:
         [ExperimentCancellationHandler()])
     with pytest.raises(KeyError):
         registry.resolve("UNKNOWN")
+
+
+def test_default_registry_returns_experiment_handler() -> None:
+    handler = JobCancellationHandlerRegistry().get(None)
+    assert isinstance(handler, ExperimentCancellationHandler)
