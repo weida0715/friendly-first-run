@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Callable
 
 from app.infrastructure.binance import BTCUSDT_INTERVAL, BTCUSDT_SYMBOL, BinanceKlineClient
 from app.repositories.unit_of_work import UnitOfWork
+
+RECONCILE_SCAN_CHUNK_DAYS = 30
 
 
 @dataclass(slots=True)
@@ -110,6 +112,8 @@ class MarketDataService:
         return earliest.astimezone(UTC)
 
     def list_cached_btcusdt_1m_timestamps(self, start: datetime, end: datetime) -> list[datetime]:
+        start = _ensure_utc_datetime(start)
+        end = _ensure_utc_datetime(end)
         try:
             with self._unit_of_work_factory() as uow:
                 if uow.market_data is None:
@@ -127,6 +131,46 @@ class MarketDataService:
             normalized.append(ts.replace(tzinfo=UTC)
                               if ts.tzinfo is None else ts.astimezone(UTC))
         return normalized
+
+    def discover_missing_btcusdt_1m_ranges(
+        self,
+        start: datetime,
+        end: datetime,
+    ) -> tuple[list[tuple[datetime, datetime]], int]:
+        start = _ensure_utc_datetime(start)
+        end = _ensure_utc_datetime(end)
+        if start >= end:
+            return [], 0
+
+        step = timedelta(minutes=1)
+        scan_chunk = timedelta(days=RECONCILE_SCAN_CHUNK_DAYS)
+        cursor = start
+        next_missing_start = start
+        total_cached = 0
+        missing_ranges: list[tuple[datetime, datetime]] = []
+
+        while cursor < end:
+            scan_end = min(cursor + scan_chunk, end)
+            cached = [
+                timestamp
+                for timestamp in self.list_cached_btcusdt_1m_timestamps(cursor, scan_end)
+                if cursor <= timestamp < scan_end
+            ]
+            total_cached += len(cached)
+
+            for timestamp in cached:
+                if timestamp < next_missing_start:
+                    continue
+                if timestamp > next_missing_start:
+                    missing_ranges.append((next_missing_start, timestamp))
+                next_missing_start = timestamp + step
+
+            cursor = scan_end
+
+        if next_missing_start < end:
+            missing_ranges.append((next_missing_start, end))
+
+        return _merge_ranges(missing_ranges), total_cached
 
     def clear_btcusdt_1m_cache(self) -> int:
         try:
@@ -148,3 +192,16 @@ def _ensure_utc_datetime(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def _merge_ranges(ranges: list[tuple[datetime, datetime]]) -> list[tuple[datetime, datetime]]:
+    merged: list[tuple[datetime, datetime]] = []
+    for start, end in ranges:
+        if start >= end:
+            continue
+        if not merged or start > merged[-1][1]:
+            merged.append((start, end))
+            continue
+        previous_start, previous_end = merged[-1]
+        merged[-1] = (previous_start, max(previous_end, end))
+    return merged

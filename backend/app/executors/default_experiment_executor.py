@@ -43,6 +43,10 @@ class ExperimentExecutionError(RuntimeError):
     """Raised when an experiment cannot load sufficient market data."""
 
 
+class ExperimentCancelledError(RuntimeError):
+    """Raised when an experiment is cancelled between executor stages."""
+
+
 class DefaultExperimentExecutor(ExperimentExecutor):
     """Refreshes BTCUSDT cache and loads experiment candles from local storage."""
 
@@ -128,6 +132,7 @@ class DefaultExperimentExecutor(ExperimentExecutor):
             "target_strategy": compiled.get("target_strategy") or overrides.get("target_strategy", "forward_return"),
             "target_params": target_params,
             "feature_columns": overrides.get("feature_columns"),
+            "signal_threshold": float(overrides.get("signal_threshold", overrides.get("signalThreshold", 0.5))),
             "max_round_log_rows": int(overrides.get("max_round_log_rows", get_runtime_settings()["max_round_log_rows"])),
         }
 
@@ -387,6 +392,21 @@ class DefaultExperimentExecutor(ExperimentExecutor):
     ) -> BacktestResult:
         return LongOnlySinglePositionStrategy().run(test_data, predictions, ctx.config or {})
 
+    def check_cancelled(self, ctx: ExperimentExecutor.ExecutionContext) -> None:
+        with self._unit_of_work_factory() as uow:
+            if uow.experiments is None:
+                return None
+            experiment = uow.experiments.get_by_id(ctx.experiment_id)
+            if experiment is not None and str(experiment.status or "").lower() == "cancelled":
+                raise ExperimentCancelledError(f"Experiment {ctx.experiment_id} was cancelled")
+        return None
+
+    def prepare_predictions(self, predictions: dict[str, Any], ctx: ExperimentExecutor.ExecutionContext) -> dict[str, Any]:
+        return _apply_signal_threshold(predictions, (ctx.config or {}).get("signal_threshold", 0.5))
+
+    def adjust_evaluation(self, evaluation: dict[str, Any], predictions: dict[str, Any], test_data, ctx: ExperimentExecutor.ExecutionContext) -> dict[str, Any]:
+        return {**evaluation, **_classification_metrics(test_data, list(predictions.get("_preds") or []))}
+
     def persist_model_artifact(
         self,
         ctx: ExperimentExecutor.ExecutionContext,
@@ -615,6 +635,45 @@ def _ratio_decimal(value: Any) -> Decimal | None:
         return None
 
 
+def _apply_signal_threshold(predictions: dict[str, Any], threshold: Any = 0.5) -> dict[str, Any]:
+    result = dict(predictions)
+    probs = list(result.get("_probs") or [])
+    preds = list(result.get("_preds") or [])
+    raw_values = probs if probs else preds
+    result["_raw_values"] = raw_values
+    if probs:
+        try:
+            cutoff = float(threshold)
+        except (TypeError, ValueError):
+            cutoff = 0.5
+        result["_preds"] = [1 if float(value) >= cutoff else 0 for value in probs]
+    return result
+
+
+def _classification_metrics(test_frame: pl.LazyFrame, predictions: list[Any]) -> dict[str, Any]:
+    try:
+        rows = test_frame.select(pl.col("target").fill_null(0).cast(pl.Int8).alias("target")).collect().to_dicts()
+    except Exception:
+        return {}
+    y_true = [int(row["target"] or 0) for row in rows]
+    y_pred = [int(value) for value in predictions[:len(y_true)]]
+    if len(y_pred) < len(y_true):
+        y_pred.extend([0] * (len(y_true) - len(y_pred)))
+    if not y_true:
+        return {"accuracy": 0.0, "precision": 0.0, "recall": 0.0, "rows": 0}
+    pairs = list(zip(y_true, y_pred, strict=True))
+    correct = sum(1 for actual, predicted in pairs if actual == predicted)
+    tp = sum(1 for actual, predicted in pairs if actual == 1 and predicted == 1)
+    fp = sum(1 for actual, predicted in pairs if actual == 0 and predicted == 1)
+    fn = sum(1 for actual, predicted in pairs if actual == 1 and predicted == 0)
+    return {
+        "accuracy": correct / len(y_true),
+        "precision": tp / (tp + fp) if tp + fp else 0.0,
+        "recall": tp / (tp + fn) if tp + fn else 0.0,
+        "rows": len(y_true),
+    }
+
+
 def _build_confusion_metrics(ctx: ExperimentExecutor.ExecutionContext, params: dict[str, Any]) -> dict[str, Any]:
     test_frame = (ctx.config or {}).get("_latest_test_data")
     predictions = (ctx.config or {}).get("_latest_predictions") or {}
@@ -669,10 +728,12 @@ def _build_round_log_rows(
             pl.col("target").fill_null(0).cast(pl.Int8).alias("actual"),
         ]).collect().to_dicts()
         pred_values = list(predictions.get("_preds") or [])[: len(rows)]
+        raw_values = list(predictions.get("_raw_values") or pred_values)[: len(rows)]
         result: list[dict[str, Any]] = []
         for index, row in enumerate(rows[:max_rows]):
             predicted = int(pred_values[index]
                             if index < len(pred_values) else 0)
+            raw_value = raw_values[index] if index < len(raw_values) else predicted
             actual = int(row.get("actual") or 0)
             if predicted == 1 and actual == 1:
                 outcome = "win"
@@ -687,7 +748,7 @@ def _build_round_log_rows(
                 "actual": actual,
                 "outcome": outcome,
                 "signal": predicted,
-                "prediction": Decimal(str(predicted)),
+                "prediction": Decimal(str(raw_value)),
                 "model_id": model_id,
                 "parameter_hash": parameter_hash,
             })

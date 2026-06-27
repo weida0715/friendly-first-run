@@ -236,6 +236,10 @@ def _concurrency_limit_error(queue_service):
     return None
 
 
+def _job_priority(payload: dict) -> str:
+    return str(payload.get("job_priority") or payload.get("jobPriority") or "normal")
+
+
 @blueprint.post("")
 @blueprint.post("/")
 def create_experiment():
@@ -361,6 +365,7 @@ def create_experiment():
             job_spec = JobSpecification(
                 job_type="EXPERIMENT_EXECUTION",
                 payload={"experiment_id": experiment_id},
+                priority=_job_priority(payload),
                 requested_by_user_id=actor.user_id,
             )
             queue_position = queue_service.enqueue_job(job_spec)

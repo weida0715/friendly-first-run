@@ -8,7 +8,6 @@ from typing import Any
 
 from flask import Blueprint, request
 
-from app.controllers._access import build_access_control
 from app.responses import error_response, ok_response
 
 blueprint = Blueprint("documentation", __name__)
@@ -19,11 +18,6 @@ class DocumentationController:
     """Coordinates documentation browsing use cases."""
 
     pass
-
-
-def _auth():
-    actor = build_access_control().require_authenticated(request)
-    return actor if hasattr(actor, "user_id") else None, actor
 
 
 def _parse_doc(path: Path) -> dict[str, Any]:
@@ -58,11 +52,9 @@ def _docs() -> list[dict[str, Any]]:
     return sorted((_parse_doc(path) for path in DOCS_DIR.glob("*.md")), key=lambda doc: (doc["order"], doc["title"]))
 
 
-@blueprint.get("/")
+@blueprint.get("/", strict_slashes=False)
+@blueprint.get("", strict_slashes=False)
 def index():
-    actor, response = _auth()
-    if actor is None:
-        return response
     q = (request.args.get("q") or "").strip().lower()
     docs = _docs()
     if q:
@@ -72,9 +64,6 @@ def index():
 
 @blueprint.get("/<string:slug>")
 def detail(slug: str):
-    actor, response = _auth()
-    if actor is None:
-        return response
     doc = next((item for item in _docs() if item["slug"] == slug), None)
     if doc is None:
         return error_response("Documentation page not found", 404)

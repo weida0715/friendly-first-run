@@ -63,6 +63,8 @@ interface ExperimentDraft {
   deterministic: boolean;
   seed: string;
   requestedPermutationCount: string;
+  signalThreshold: string;
+  jobPriority: 'low' | 'normal' | 'high';
 }
 
 interface WizardFieldErrors {
@@ -79,6 +81,8 @@ interface WizardFieldErrors {
   targetStrategy?: string;
   parameterOverrides?: string;
   requestedPermutationCount?: string;
+  signalThreshold?: string;
+  jobPriority?: string;
 }
 
 const STEP_META: Array<{ id: StepId; label: string; description: string }> = [
@@ -858,6 +862,8 @@ export function ExperimentWizardView() {
     deterministic: true,
     seed: '42',
     requestedPermutationCount: '',
+    signalThreshold: '0.5',
+    jobPriority: 'normal',
   });
   const marketChart = useBTCUSDTChartData();
 
@@ -1267,6 +1273,13 @@ export function ExperimentWizardView() {
     return undefined;
   }
 
+  function validateSignalThreshold(value: string) {
+    if (value.trim() === '') return 'Signal threshold is required.';
+    const threshold = Number(value);
+    if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) return 'Signal threshold must be between 0 and 1.';
+    return undefined;
+  }
+
   function validateSplitStep(): WizardFieldErrors {
     const nextErrors: WizardFieldErrors = {};
 
@@ -1391,11 +1404,12 @@ export function ExperimentWizardView() {
 
     if (currentStep.id === 'deterministic-seed') {
       const requestedError = validateRequestedPermutationCount(draft.requestedPermutationCount);
-      if (requestedError) {
-        setErrors((prev) => ({ ...prev, requestedPermutationCount: requestedError }));
+      const thresholdError = validateSignalThreshold(draft.signalThreshold);
+      if (requestedError || thresholdError) {
+        setErrors((prev) => ({ ...prev, requestedPermutationCount: requestedError, signalThreshold: thresholdError }));
         return;
       }
-      setErrors((prev) => ({ ...prev, requestedPermutationCount: undefined }));
+      setErrors((prev) => ({ ...prev, requestedPermutationCount: undefined, signalThreshold: undefined }));
     }
 
     setCurrentStepIndex((prev) => Math.min(prev + 1, STEP_META.length - 1));
@@ -1407,9 +1421,10 @@ export function ExperimentWizardView() {
 
   async function handleSubmitExperiment() {
     const requestedError = validateRequestedPermutationCount(draft.requestedPermutationCount);
-    if (requestedError) {
+    const thresholdError = validateSignalThreshold(draft.signalThreshold);
+    if (requestedError || thresholdError) {
       setSubmitError(null);
-      setErrors((prev) => ({ ...prev, requestedPermutationCount: requestedError }));
+      setErrors((prev) => ({ ...prev, requestedPermutationCount: requestedError, signalThreshold: thresholdError }));
       return;
     }
     setSubmitError(null);
@@ -1422,6 +1437,7 @@ export function ExperimentWizardView() {
         target: compactParsedValues(draft.targetOverrides),
         target_params: compactParsedValues(draft.targetParams),
         indicator_output_scalers: draft.indicatorOutputScalers,
+        signal_threshold: Number(draft.signalThreshold),
       } as Record<string, unknown>;
       const payload = {
         name: draft.name,
@@ -1441,6 +1457,7 @@ export function ExperimentWizardView() {
         deterministic: draft.deterministic,
         seed: draft.deterministic ? Number(draft.seed || 42) : undefined,
         requested_permutation_count: Math.max(1, Number(draft.requestedPermutationCount || maxPermutationCount)),
+        job_priority: draft.jobPriority,
       };
 
       const res = await createExperiment(payload);
@@ -1955,9 +1972,10 @@ export function ExperimentWizardView() {
         );
       case 'deterministic-seed':
         return (
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-3">
             <Card><CardHeader><CardTitle className="text-base">Permutation Sampling</CardTitle><CardDescription>Search space max: {maxPermutationCount}. Admin cap: {systemPermutationCap ?? 500}. The requested count must stay under both.</CardDescription></CardHeader><CardContent className="space-y-2"><Label htmlFor="requested-permutations">Desired permutations to run</Label><Input id="requested-permutations" type="number" min={1} max={requestedPermutationLimit} value={draft.requestedPermutationCount} onChange={(event) => { requestedPermutationTouched.current = true; const nextValue = event.target.value; setDraft((prev) => ({ ...prev, requestedPermutationCount: nextValue })); }} aria-invalid={Boolean(requestedPermutationError)} /><p className="text-xs text-muted-foreground">Hard limit: {requestedPermutationLimit}.</p>{requestedPermutationError ? <p className="text-xs text-destructive">{requestedPermutationError}</p> : null}</CardContent></Card>
             <Card><CardHeader><CardTitle className="text-base">Seed</CardTitle><CardDescription>This system is designed for deterministic execution. Set the seed used for repeatable permutation sampling.</CardDescription></CardHeader><CardContent className="space-y-2"><Label htmlFor="seed">Seed</Label><Input id="seed" value={draft.seed || '42'} onChange={(event) => setDraft((prev) => ({ ...prev, seed: event.target.value }))} /></CardContent></Card>
+            <Card><CardHeader><CardTitle className="text-base">Runtime</CardTitle><CardDescription>Queue priority and binary decision threshold for model signals.</CardDescription></CardHeader><CardContent className="space-y-3"><div className="space-y-2"><Label htmlFor="job-priority">Job priority</Label><select id="job-priority" aria-label="Job priority" value={draft.jobPriority} onChange={(event) => setDraft((prev) => ({ ...prev, jobPriority: event.target.value as ExperimentDraft['jobPriority'] }))} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select></div><div className="space-y-2"><Label htmlFor="signal-threshold">Signal threshold</Label><Input id="signal-threshold" type="number" min={0} max={1} step={0.01} value={draft.signalThreshold} onChange={(event) => setDraft((prev) => ({ ...prev, signalThreshold: event.target.value }))} aria-invalid={Boolean(errors.signalThreshold)} />{errors.signalThreshold ? <p className="text-xs text-destructive">{errors.signalThreshold}</p> : null}</div></CardContent></Card>
           </div>
         );
       case 'review':

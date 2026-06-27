@@ -34,6 +34,17 @@ interface BlueprintConfig {
   referenceModelParams: ParamState;
 }
 
+interface ArchitectureOption {
+  id: string;
+  modelName: string;
+  blueprintType: string;
+  status: string;
+  visibility: string;
+  ownerUsername: string;
+  parameters: Record<string, unknown>;
+  parameterConstraints: Record<string, ParameterConstraint>;
+}
+
 const talibIndicatorNames = [
   'ACCBANDS', 'ACOS', 'AD', 'ADD', 'ADOSC', 'ADX', 'ADXR', 'APO', 'AROON', 'AROONOSC', 'ASIN', 'ATAN', 'ATR', 'AVGPRICE',
   'BBANDS', 'BETA', 'BOP', 'CCI', 'CDL2CROWS', 'CDL3BLACKCROWS', 'CDL3INSIDE', 'CDL3LINESTRIKE', 'CDL3OUTSIDE',
@@ -113,7 +124,7 @@ const customIndicatorOptions: IndicatorOption[] = [
 
 const fallbackIndicators: IndicatorOption[] = [...talibIndicatorOptions, ...customIndicatorOptions];
 
-const fallbackArchitectures = [
+const fallbackArchitectures: ArchitectureOption[] = [
   {
     id: 'logistic_regressor_arc',
     modelName: 'Logistic Regressor',
@@ -183,7 +194,7 @@ export function BlueprintWizardView({ mode = 'create', sourceBlueprintId }: { mo
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [metadataIndicators, setMetadataIndicators] = useState<IndicatorOption[]>(fallbackIndicators);
-  const [metadataArchitectures, setMetadataArchitectures] = useState(fallbackArchitectures);
+  const [metadataArchitectures, setMetadataArchitectures] = useState<ArchitectureOption[]>(fallbackArchitectures);
 
   useEffect(() => {
     let active = true;

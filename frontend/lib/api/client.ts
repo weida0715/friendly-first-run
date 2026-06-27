@@ -439,6 +439,15 @@ export function getFavoritedModels(params: Pick<ModelQueryParams, 'experimentId'
   return apiGet<ModelListResponse>(suffix ? `${API_ENDPOINTS.models.favorited}?${suffix}` : API_ENDPOINTS.models.favorited);
 }
 
+export function listFavoritedBlueprints(params: { name?: string; status?: string; author?: string } = {}): Promise<BlueprintLibraryResponse> {
+  const query = new URLSearchParams();
+  if (params.name) query.set('name', params.name);
+  if (params.status) query.set('status', params.status);
+  if (params.author) query.set('author', params.author);
+  const suffix = query.toString();
+  return apiGet<BlueprintLibraryResponse>(suffix ? `${API_ENDPOINTS.blueprints.favorited}?${suffix}` : API_ENDPOINTS.blueprints.favorited);
+}
+
 export function getModelDetail(modelId: string | number): Promise<ModelDetailResponse> {
   return apiGet<ModelDetailResponse>(API_ENDPOINTS.models.byId(modelId));
 }
@@ -457,6 +466,7 @@ export interface PublicProfileResponse {
   ok: boolean;
   data?: {
     user?: Record<string, unknown>;
+    summary?: { experiments?: number; models?: number; blueprints?: number };
     experiments?: Array<Record<string, unknown>>;
     models?: Array<Record<string, unknown>>;
     blueprints?: Array<Record<string, unknown>>;
@@ -593,7 +603,14 @@ export interface CreateBlueprintRequest {
   indicators: {
     selected: string[];
     params?: Record<string, Record<string, string>>;
-    definitions?: Array<{ name: string; source?: string; outputs: string[] }>;
+    output_scalers?: Record<string, Record<string, string>>;
+    definitions?: Array<{
+      name: string;
+      source?: string;
+      outputs: string[];
+      parameters?: Record<string, string>;
+      outputScalers?: Record<string, string>;
+    }>;
   };
   architecture: {
     name?: string;

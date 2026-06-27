@@ -212,6 +212,7 @@ class RedisJobQueue(JobQueue):
                 "queue_position": queue_position,
                 "worker_name": worker_name,
                 "requested_by_user_id": rq_job.meta.get("requested_by_user_id"),
+                "priority": rq_job.meta.get("priority"),
                 "job_type": rq_job.meta.get("job_type"),
                 "payload_experiment_id": (
                     rq_job.args[0].get("experiment_id")

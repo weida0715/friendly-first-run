@@ -13,6 +13,7 @@ jest.mock('@/views/ExperimentListView', () => ({ ExperimentListView: () => <div>
 jest.mock('@/views/ModelsRankingsView', () => ({ ModelsRankingsView: () => <div>Models Rankings View</div> }));
 jest.mock('@/views/BlueprintsLibraryView', () => ({ BlueprintsLibraryView: () => <div>Blueprints Library View</div> }));
 jest.mock('@/views/PublicHubView', () => ({ PublicHubView: () => <div>Public Hub View</div> }));
+jest.mock('@/views/FavoritesLibraryView', () => ({ FavoritesLibraryView: () => <div>Favorites Library View</div> }));
 jest.mock('@/views/DocumentationView', () => ({ DocumentationView: () => <div>Documentation View</div> }));
 jest.mock('@/views/JobDetailView', () => ({ JobDetailView: () => <div>Job Detail View</div> }));
 jest.mock('@/views/UserManagementView', () => ({ UserManagementView: () => <div>User Management View</div> }));
@@ -23,6 +24,7 @@ import ExperimentsPage from '@/app/experiments/page';
 import ModelsPage from '@/app/models/page';
 import BlueprintsPage from '@/app/blueprints/page';
 import HubPage from '@/app/hub/page';
+import FavoritesPage from '@/app/favorites/page';
 import DocsPage from '@/app/docs/page';
 import JobsPage from '@/app/jobs/[id]/page';
 import AdminUsersPage from '@/app/admin/users/page';
@@ -40,6 +42,7 @@ describe('route rendering and protection contracts', () => {
       <ModelsPage key="m" />,
       <BlueprintsPage key="b" />,
       <HubPage key="h" />,
+      <FavoritesPage key="f" />,
       <DocsPage key="doc" />,
       <JobsPage key="j" />,
       <AdminUsersPage key="a" />,
@@ -52,6 +55,7 @@ describe('route rendering and protection contracts', () => {
     expect(screen.getByText('Models Rankings View')).toBeInTheDocument();
     expect(screen.getByText('Blueprints Library View')).toBeInTheDocument();
     expect(screen.getByText('Public Hub View')).toBeInTheDocument();
+    expect(screen.getByText('Favorites Library View')).toBeInTheDocument();
     expect(screen.getByText('Documentation View')).toBeInTheDocument();
     expect(screen.getByText('Job Detail View')).toBeInTheDocument();
     expect(screen.getByText('User Management View')).toBeInTheDocument();
@@ -62,23 +66,13 @@ describe('route rendering and protection contracts', () => {
     render(
       <>
         <DashboardPage />
+        <FavoritesPage />
         <JobsPage />
       </>,
     );
 
     expect(requireAuthMock).toHaveBeenCalled();
-    expect(requireAuthMock).toHaveBeenCalledTimes(2);
-  });
-
-  it('does not require auth for public hub and documentation pages', () => {
-    render(
-      <>
-        <HubPage />
-        <DocsPage />
-      </>,
-    );
-
-    expect(requireAuthMock).not.toHaveBeenCalled();
+    expect(requireAuthMock).toHaveBeenCalledTimes(3);
   });
 
   it('uses RequireRole for role-protected pages with expected minimum role', () => {

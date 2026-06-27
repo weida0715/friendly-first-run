@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, request
 
 from app.controllers._access import build_access_control, require_staff
+from app.domain.models.blueprint import Blueprint as BlueprintEntity
 from app.repositories.unit_of_work import UnitOfWork
 from app.responses import error_response, ok_response
 from app.services.access_control_service import AccessControlService
@@ -124,19 +125,39 @@ def _moderate_blueprint(blueprint_id: int, target_state: str):
                 code="BLUEPRINT_INVALID_TRANSITION",
             )
 
+        now = datetime.now(timezone.utc)
         updated = uow.blueprints.update(
             blueprint_id,
             {
                 "approval_state": target_state,
-                "updated_at": datetime.now(timezone.utc),
+                "updated_at": now,
             },
         )
+        draft = None
+        if target_state == "Disapproved":
+            draft = uow.blueprints.add(BlueprintEntity(
+                blueprint_id=None,
+                user_id=blueprint_item.user_id,
+                name=blueprint_item.name,
+                description=blueprint_item.description,
+                indicators=blueprint_item.indicators,
+                features=blueprint_item.features,
+                architecture=blueprint_item.architecture,
+                approval_state="Draft",
+                submitted_at=None,
+                version=blueprint_item.version + 1,
+                parent_id=blueprint_item.blueprint_id,
+                created_at=now,
+                updated_at=now,
+            ))
 
+    draft_id = draft.blueprint_id if draft is not None else None
     return ok_response({"data": {"blueprint": {
         "id": updated.blueprint_id,
         "approvalState": updated.approval_state,
         "version": updated.version,
-    }}})
+        "draftId": draft_id,
+    }, "draftId": draft_id}})
 
 
 @blueprint.post("/<int:blueprint_id>/approve")

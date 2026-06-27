@@ -35,29 +35,36 @@ class ExperimentExecutor(ABC):
         ctx.config = self.load_config(ctx)
         self._emit(ctx, "load_config",
                    "Loaded experiment configuration", 5.0, details=ctx.config)
+        self.check_cancelled(ctx)
         self.mark_running(ctx)
 
         self._emit(ctx, "load_klines",
                    "Loading persisted BTCUSDT 1m klines", 8.0)
         raw_klines = self.load_klines(ctx)
+        self.check_cancelled(ctx)
         self._emit(ctx, "aggregate_interval", "Aggregating selected interval",
                    15.0, details={"interval": (ctx.config or {}).get("interval")})
         interval_data = self.aggregate_interval(raw_klines, ctx)
         self.validate_range(interval_data, ctx)
+        self.check_cancelled(ctx)
 
         self._emit(ctx, "split_data",
                    "Splitting data before features, targets, scaling, and training", 22.0)
         splits = self.split_data(interval_data, ctx)
+        self.check_cancelled(ctx)
         base_splits = splits
         self._emit(ctx, "compute_indicators", "Computing indicators separately per split",
                    30.0, details=getattr(splits, "metadata", None))
         splits = self.compute_indicators_per_split(splits, ctx)
+        self.check_cancelled(ctx)
         self._emit(ctx, "generate_targets", "Generating binary targets separately per split",
                    36.0, details=getattr(splits, "metadata", None))
         splits = self.generate_targets_per_split(splits, ctx)
+        self.check_cancelled(ctx)
         self._emit(ctx, "scale_features",
                    "Fitting scaler on train split and applying to validation/test", 42.0)
         splits = self.scale_features(splits, ctx)
+        self.check_cancelled(ctx)
 
         self._emit(ctx, "compile_blueprint",
                    "Compiling immutable Blueprint snapshot", 48.0)
@@ -71,6 +78,7 @@ class ExperimentExecutor(ABC):
                    f"Prepared {total} parameter permutation(s)", 55.0, current=0, total=total)
 
         for index, params in enumerate(permutations, start=1):
+            self.check_cancelled(ctx)
             if ctx.config is not None:
                 ctx.config["_current_params"] = params
             active_splits = splits
@@ -90,12 +98,14 @@ class ExperimentExecutor(ABC):
             self._emit(ctx, "predict", f"Permutation {index}/{total}: generating predictions",
                        base_progress + 16.0 / total, current=index, total=total)
             predictions = architecture.predict(active_splits.test)
+            predictions = self.prepare_predictions(predictions, ctx)
             if ctx.config is not None:
                 ctx.config["_latest_test_data"] = active_splits.test
                 ctx.config["_latest_predictions"] = predictions
             self._emit(ctx, "evaluate", f"Permutation {index}/{total}: evaluating model",
                        base_progress + 24.0 / total, current=index, total=total)
             evaluation = architecture.evaluate(active_splits.test)
+            evaluation = self.adjust_evaluation(evaluation, predictions, active_splits.test, ctx)
             self._emit(ctx, "backtest", f"Permutation {index}/{total}: running backtest", base_progress +
                        32.0 / total, details={"evaluation": evaluation}, current=index, total=total)
             backtest = self.run_backtest(predictions, active_splits.test, ctx)
@@ -110,6 +120,15 @@ class ExperimentExecutor(ABC):
         self._emit(ctx, "completed", "Experiment execution completed",
                    100.0, current=total, total=total)
         return self.build_execution_result(ctx)
+
+    def check_cancelled(self, ctx: ExecutionContext) -> None:
+        return None
+
+    def prepare_predictions(self, predictions: dict[str, Any], ctx: ExecutionContext) -> dict[str, Any]:
+        return predictions
+
+    def adjust_evaluation(self, evaluation: dict[str, Any], predictions: dict[str, Any], test_data, ctx: ExecutionContext) -> dict[str, Any]:
+        return evaluation
 
     def _emit(self, ctx: ExecutionContext, stage: str, message: str, progress: float, *, details: Any | None = None, current: int | None = None, total: int | None = None) -> None:
         hook = getattr(self, "emit_progress", None)

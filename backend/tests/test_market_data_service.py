@@ -207,3 +207,59 @@ def test_list_cached_btcusdt_1m_timestamps_returns_range_values() -> None:
         datetime(2026, 1, 1, 0, 3, tzinfo=UTC),
     )
     assert values == repo.range_timestamps
+
+
+def test_discover_missing_btcusdt_1m_ranges_returns_head_internal_and_tail_gaps() -> None:
+    repo = FakeMarketDataRepository()
+    repo.range_timestamps = [
+        datetime(2026, 1, 1, 0, 1, tzinfo=UTC),
+        datetime(2026, 1, 1, 0, 2, tzinfo=UTC),
+        datetime(2026, 1, 1, 0, 5, tzinfo=UTC),
+        datetime(2026, 1, 1, 0, 6, tzinfo=UTC),
+    ]
+    service = MarketDataService(
+        binance_client=FakeBinanceClient(candles=[]),
+        unit_of_work_factory=lambda: FakeUnitOfWork(repo),
+    )
+
+    ranges, cached_points = service.discover_missing_btcusdt_1m_ranges(
+        datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+        datetime(2026, 1, 1, 0, 8, tzinfo=UTC),
+    )
+
+    assert cached_points == 4
+    assert ranges == [
+        (
+            datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+            datetime(2026, 1, 1, 0, 1, tzinfo=UTC),
+        ),
+        (
+            datetime(2026, 1, 1, 0, 3, tzinfo=UTC),
+            datetime(2026, 1, 1, 0, 5, tzinfo=UTC),
+        ),
+        (
+            datetime(2026, 1, 1, 0, 7, tzinfo=UTC),
+            datetime(2026, 1, 1, 0, 8, tzinfo=UTC),
+        ),
+    ]
+
+
+def test_discover_missing_btcusdt_1m_ranges_treats_end_as_exclusive() -> None:
+    repo = FakeMarketDataRepository()
+    repo.range_timestamps = [
+        datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+        datetime(2026, 1, 1, 0, 1, tzinfo=UTC),
+        datetime(2026, 1, 1, 0, 2, tzinfo=UTC),
+    ]
+    service = MarketDataService(
+        binance_client=FakeBinanceClient(candles=[]),
+        unit_of_work_factory=lambda: FakeUnitOfWork(repo),
+    )
+
+    ranges, cached_points = service.discover_missing_btcusdt_1m_ranges(
+        datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+        datetime(2026, 1, 1, 0, 2, tzinfo=UTC),
+    )
+
+    assert cached_points == 2
+    assert ranges == []

@@ -7,9 +7,8 @@ from decimal import Decimal
 from typing import Any
 
 from flask import Blueprint, request
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 
-from app.controllers._access import build_access_control
 from app.infrastructure.database.orm.blueprint_orm import BlueprintORM
 from app.infrastructure.database.orm.experiment_orm import ExperimentORM
 from app.infrastructure.database.orm.model_orm import ModelORM
@@ -119,17 +118,9 @@ def _blueprint_item(bp: BlueprintORM, owner: UserORM) -> dict[str, Any]:
     }
 
 
-def _auth():
-    actor = build_access_control().require_authenticated(request)
-    return actor if hasattr(actor, "user_id") else None, actor
-
-
-@blueprint.get("/")
+@blueprint.get("/", strict_slashes=False)
+@blueprint.get("", strict_slashes=False)
 def index():
-    actor, response = _auth()
-    if actor is None:
-        return response
-
     tab = request.args.get("tab") or "users"
     q = (request.args.get("q") or "").strip()
     owner_id_raw = request.args.get("ownerId") or request.args.get("owner_id")
@@ -202,10 +193,6 @@ def index():
 
 @blueprint.get("/users/<int:user_id>")
 def public_profile(user_id: int):
-    actor, response = _auth()
-    if actor is None:
-        return response
-
     with UnitOfWork() as uow:
         user = uow.session.get(UserORM, user_id)
         if user is None or user.Status != "Enabled":
@@ -233,10 +220,27 @@ def public_profile(user_id: int):
             .order_by(BlueprintORM.UpdatedAt.desc())
             .limit(10)
         ).all()
+        summary = {
+            "experiments": uow.session.scalar(
+                _public_base(select(func.count(ExperimentORM.ExperimentID))).where(ExperimentORM.UserID == user_id)
+            ) or 0,
+            "models": uow.session.scalar(
+                _public_base(
+                    select(func.count(ModelORM.ModelID))
+                    .join(ExperimentORM, ExperimentORM.ExperimentID == ModelORM.ExperimentID)
+                ).where(ExperimentORM.UserID == user_id)
+            ) or 0,
+            "blueprints": uow.session.scalar(
+                select(func.count(BlueprintORM.BlueprintID))
+                .join(UserORM, UserORM.UserID == BlueprintORM.UserID)
+                .where(BlueprintORM.UserID == user_id, BlueprintORM.ApprovalState == "Approved", UserORM.Status == "Enabled")
+            ) or 0,
+        }
 
     return ok_response({
         "data": {
             "user": _user_item(user),
+            "summary": summary,
             "experiments": [_experiment_item(*row) for row in exp_rows],
             "models": [_model_item(*row) for row in model_rows],
             "blueprints": [_blueprint_item(*row) for row in blueprint_rows],

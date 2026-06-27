@@ -12,7 +12,7 @@ import polars as pl
 from redis import Redis
 from rq import Queue, Worker, get_current_job
 
-from app.executors.default_experiment_executor import DefaultExperimentExecutor
+from app.executors.default_experiment_executor import DefaultExperimentExecutor, ExperimentCancelledError
 from app.repositories.unit_of_work import UnitOfWork
 
 LOGGER = logging.getLogger(__name__)
@@ -120,6 +120,12 @@ def handle_experiment_job(payload: dict[str, Any]) -> dict[str, Any]:
         if isinstance(execution_result, dict):
             payload["execution_result"] = execution_result
         return payload
+    except ExperimentCancelledError:
+        LOGGER.info(
+            "experiment_job.cancelled",
+            extra={"job_id": job_id, "experiment_id": experiment_id},
+        )
+        return {"ok": False, "experiment_id": experiment_id, "cancelled": True}
     except ExperimentJobPayloadError:
         LOGGER.error(
             "experiment_job.validation_failed",

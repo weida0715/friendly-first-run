@@ -19,12 +19,6 @@ def _client():
     return create_app("testing").test_client()
 
 
-def _login(client):
-    client.post("/api/auth/register", json={"name": "Viewer", "username": "viewer001", "email": "viewer@example.com", "password": "securepass"})
-    login = client.post("/api/auth/login", json={"email": "viewer@example.com", "password": "securepass"})
-    return login.headers.get("Set-Cookie", "").split(";", 1)[0]
-
-
 def _seed_public_private():
     now = datetime(2026, 1, 1, 12)
     with UnitOfWork() as uow:
@@ -47,31 +41,30 @@ def _seed_public_private():
 
 def test_public_hub_visibility_and_search():
     client = _client()
-    cookie = _login(client)
     _seed_public_private()
 
-    users = client.get("/api/hub/?tab=users", headers={"Cookie": cookie}).get_json()["data"]["items"]
+    users = client.get("/api/hub/?tab=users").get_json()["data"]["items"]
     assert any(item["username"] == "owner001" for item in users)
     assert all(item["username"] != "disabled001" for item in users)
 
-    experiments = client.get("/api/hub/?tab=experiments&q=Public", headers={"Cookie": cookie}).get_json()["data"]["items"]
+    experiments = client.get("/api/hub/?tab=experiments&q=Public").get_json()["data"]["items"]
     assert [item["name"] for item in experiments] == ["Public Exp"]
 
-    blueprints = client.get("/api/hub/?tab=blueprints", headers={"Cookie": cookie}).get_json()["data"]["items"]
+    blueprints = client.get("/api/hub/?tab=blueprints").get_json()["data"]["items"]
     assert [item["name"] for item in blueprints] == ["Approved BP"]
 
-    models = client.get("/api/hub/?tab=models&metric=accuracy", headers={"Cookie": cookie}).get_json()["data"]["items"]
+    models = client.get("/api/hub/?tab=models&metric=accuracy").get_json()["data"]["items"]
     assert models[0]["parameterHash"] == "abc"
 
 
 def test_public_profile_returns_only_public_artifacts():
     client = _client()
-    cookie = _login(client)
     owner_id = _seed_public_private()
 
-    response = client.get(f"/api/hub/users/{owner_id}", headers={"Cookie": cookie})
+    response = client.get(f"/api/hub/users/{owner_id}")
     assert response.status_code == 200
     body = response.get_json()["data"]
     assert body["user"]["username"] == "owner001"
+    assert body["summary"] == {"experiments": 1, "models": 1, "blueprints": 1}
     assert [item["name"] for item in body["experiments"]] == ["Public Exp"]
     assert [item["name"] for item in body["blueprints"]] == ["Approved BP"]

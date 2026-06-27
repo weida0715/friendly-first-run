@@ -136,13 +136,17 @@ describe('ExperimentWizardView', () => {
     await user.selectOptions(classWeightInput, 'null');
 
     await user.click(screen.getByRole('button', { name: 'Next' }));
+    await user.selectOptions(screen.getByLabelText('Job priority'), 'high');
+    fireEvent.change(screen.getByLabelText('Signal threshold'), { target: { value: '0.72' } });
     await user.click(screen.getByRole('button', { name: 'Next' }));
     await user.click(screen.getByRole('button', { name: 'Proceed to Submit' }));
     await user.click(screen.getByRole('button', { name: 'Submit Experiment' }));
 
     await waitFor(() => expect(createExperimentMock).toHaveBeenCalled());
-    const payload = createExperimentMock.mock.calls[0][0] as { parameter_overrides?: { architecture?: { class_weight?: unknown } } };
+    const payload = createExperimentMock.mock.calls[0][0] as { job_priority?: string; parameter_overrides?: { architecture?: { class_weight?: unknown }; signal_threshold?: number } };
     expect(payload.parameter_overrides?.architecture?.class_weight).toBeNull();
+    expect(payload.parameter_overrides?.signal_threshold).toBe(0.72);
+    expect(payload.job_priority).toBe('high');
   });
 
   it('navigates to blueprint selection step and renders approved options', async () => {

@@ -262,7 +262,7 @@ class MarketDataRepository:
                 BTCUSDTKlineORM.Close,
                 BTCUSDTKlineORM.Volume,
             )
-            .where(BTCUSDTKlineORM.Timestamp >= start, BTCUSDTKlineORM.Timestamp <= end)
+            .where(BTCUSDTKlineORM.Timestamp >= start, BTCUSDTKlineORM.Timestamp < end)
             .order_by(BTCUSDTKlineORM.Timestamp)
         )
         if limit is not None:

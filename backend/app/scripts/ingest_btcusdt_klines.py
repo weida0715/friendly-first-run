@@ -9,76 +9,13 @@ from app.services.market_data_service import MarketDataRefreshError, MarketDataS
 
 DEFAULT_EARLIEST_BINANCE_BTCUSDT_SPOT = "2017-08-17T00:00:00Z"
 DEFAULT_CHUNK_HOURS = 24
-RECONCILE_SCAN_CHUNK_DAYS = 30
-
-
-def _merge_ranges(
-    ranges: list[tuple[datetime, datetime]],
-) -> list[tuple[datetime, datetime]]:
-    merged_ranges: list[tuple[datetime, datetime]] = []
-    for range_start, range_end in ranges:
-        if range_start >= range_end:
-            continue
-        if not merged_ranges:
-            merged_ranges.append((range_start, range_end))
-            continue
-        last_start, last_end = merged_ranges[-1]
-        if range_start <= last_end:
-            merged_ranges[-1] = (last_start, max(last_end, range_end))
-        else:
-            merged_ranges.append((range_start, range_end))
-    return merged_ranges
-
 
 def _discover_missing_ranges(
     service: MarketDataService,
     start: datetime,
     end: datetime,
 ) -> tuple[list[tuple[datetime, datetime]], int]:
-    step = timedelta(minutes=1)
-    reconcile_scan_chunk = timedelta(days=RECONCILE_SCAN_CHUNK_DAYS)
-    cursor_scan = start
-    prev_cached_ts: datetime | None = None
-    total_cached_points = 0
-    ranges_to_process: list[tuple[datetime, datetime]] = []
-
-    while cursor_scan < end:
-        scan_end = min(cursor_scan + reconcile_scan_chunk, end)
-        cached = service.list_cached_btcusdt_1m_timestamps(
-            cursor_scan, scan_end)
-        total_cached_points += len(cached)
-
-        if not cached:
-            if prev_cached_ts is None:
-                ranges_to_process.append((cursor_scan, scan_end))
-            else:
-                gap_start = prev_cached_ts + step
-                if scan_end > gap_start:
-                    ranges_to_process.append((gap_start, scan_end))
-        else:
-            if prev_cached_ts is None:
-                if cursor_scan < cached[0]:
-                    ranges_to_process.append((cursor_scan, cached[0]))
-            else:
-                gap_start = prev_cached_ts + step
-                if cached[0] > gap_start:
-                    ranges_to_process.append((gap_start, cached[0]))
-
-            for prev, curr in zip(cached, cached[1:]):
-                gap_start = prev + step
-                if curr > gap_start:
-                    ranges_to_process.append((gap_start, curr))
-
-            prev_cached_ts = cached[-1]
-
-        cursor_scan = scan_end
-
-    if prev_cached_ts is not None:
-        tail_start = prev_cached_ts + step
-        if tail_start < end:
-            ranges_to_process.append((tail_start, end))
-
-    return _merge_ranges(ranges_to_process), total_cached_points
+    return service.discover_missing_btcusdt_1m_ranges(start, end)
 
 
 def _process_ranges(

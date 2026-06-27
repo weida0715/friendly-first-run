@@ -52,11 +52,11 @@ export const API_ENDPOINTS = {
     favorite: (modelId: string | number) => `/models/${modelId}/favorite`,
   },
   hub: {
-    list: '/hub/',
+    list: '/hub',
     user: (userId: string | number) => `/hub/users/${userId}`,
   },
   docs: {
-    list: '/docs/',
+    list: '/docs',
     bySlug: (slug: string) => `/docs/${slug}`,
   },
   logs: {

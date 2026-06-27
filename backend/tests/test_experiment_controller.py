@@ -35,11 +35,14 @@ class _FakeQueuePosition:
 
 
 class _FakeQueueService:
+    def __init__(self) -> None:
+        self.last_spec = None
+
     def get_active_queue_snapshot(self):
         return {"running_jobs": 0, "queue_depth": 0, "active_jobs_total": 0, "active_jobs": []}
 
     def enqueue_job(self, spec):  # noqa: ANN001
-        _ = spec
+        self.last_spec = spec
         return _FakeQueuePosition()
 
 
@@ -186,6 +189,8 @@ def test_create_experiment_returns_422_with_structured_errors() -> None:
         "name": "",
         "symbol": "ETHUSDT",
         "train_split": "x",
+        "job_priority": "urgent",
+        "parameter_overrides": {"signal_threshold": 1.5},
     })
 
     assert response.status_code == 422
@@ -194,6 +199,8 @@ def test_create_experiment_returns_422_with_structured_errors() -> None:
     assert "data" in payload and "errors" in payload["data"]
     assert "name" in payload["data"]["errors"]
     assert "symbol" in payload["data"]["errors"]
+    assert "jobPriority" in payload["data"]["errors"]
+    assert "parameterOverrides.signal_threshold" in payload["data"]["errors"]
 
 
 def test_create_experiment_rejects_when_concurrency_limit_reached() -> None:
@@ -297,6 +304,48 @@ def test_create_experiment_persists_and_returns_created_payload() -> None:
         assert persisted.max_permutation_count == 1
         assert len(models) == 1
         assert models[0].parameter_hash
+
+
+def test_create_experiment_passes_requested_priority_to_queue() -> None:
+    from app.controllers import experiment_controller as module
+
+    client = _client()
+    queue = _FakeQueueService()
+    module._build_queue_service = lambda: queue
+    client.post("/api/auth/register", json={
+        "name": "owner",
+        "username": "ownerprio",
+        "email": "ownerprio@example.com",
+        "password": "securepass",
+    })
+    client.post("/api/auth/login", json={
+        "email": "ownerprio@example.com",
+        "password": "securepass",
+    })
+
+    with UnitOfWork() as uow:
+        owner = uow.users.get_by_email("ownerprio@example.com")
+        now = datetime(2026, 1, 1, 12, 0, 0)
+        blueprint = uow.blueprints.add(Blueprint(
+            None, owner.user_id, "BP Approved", None, {}, {}, {}, "Approved", now, 1, None, now, now))
+
+    response = client.post("/api/experiments/", json={
+        "name": "Priority Exp",
+        "symbol": "BTCUSDT",
+        "interval": "1m",
+        "start_date": "2026-01-01T00:00:00Z",
+        "end_date": "2026-01-10T00:00:00Z",
+        "train_split": 80,
+        "val_split": 10,
+        "test_split": 10,
+        "blueprint_id": blueprint.blueprint_id,
+        "parameter_overrides": {},
+        "job_priority": "high",
+    })
+
+    assert response.status_code == 201
+    assert queue.last_spec is not None
+    assert queue.last_spec.priority == "high"
 
 
 def test_create_experiment_clamps_requested_permutations_to_system_limit(monkeypatch) -> None:

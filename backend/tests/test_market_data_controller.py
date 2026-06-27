@@ -149,6 +149,54 @@ def test_market_data_kline_endpoint_returns_supported_aggregated_interval() -> N
     assert body["data"]["items"][0]["close"] == "50015.90000000"
 
 
+def test_market_data_kline_aggregation_uses_exact_ohlcv_and_excludes_end_boundary() -> None:
+    client = _client()
+    base = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
+    with UnitOfWork() as uow:
+        candles = []
+        for minute in range(6):
+            timestamp = base.replace(minute=minute)
+            if minute == 5:
+                candles.append(
+                    BTCUSDTKline(
+                        timestamp=timestamp,
+                        open=Decimal("999"),
+                        high=Decimal("999"),
+                        low=Decimal("999"),
+                        close=Decimal("999"),
+                        volume=Decimal("999"),
+                        created_at=timestamp,
+                    )
+                )
+                continue
+            candles.append(
+                BTCUSDTKline(
+                    timestamp=timestamp,
+                    open=Decimal("100") + Decimal(minute),
+                    high=Decimal("110") + Decimal(minute),
+                    low=Decimal("90") - Decimal(minute),
+                    close=Decimal("200") + Decimal(minute),
+                    volume=Decimal("1.5"),
+                    created_at=timestamp,
+                )
+            )
+        uow.market_data.upsert_klines(candles)
+
+    response = client.get(
+        "/api/market-data/btcusdt/klines"
+        "?start=2026-01-01T00:00:00Z&end=2026-01-01T00:05:00Z&interval=5m"
+    )
+
+    assert response.status_code == 200
+    item = response.get_json()["data"]["items"][0]
+    assert item["timestamp"] == "2026-01-01T00:00:00Z"
+    assert item["open"] == "100.00000000"
+    assert item["high"] == "114.00000000"
+    assert item["low"] == "86.00000000"
+    assert item["close"] == "204.00000000"
+    assert item["volume"] == "7.50000000"
+
+
 def test_market_data_kline_endpoint_returns_empty_items_for_empty_cache() -> None:
     client = _client()
     response = client.get(
@@ -693,21 +741,27 @@ def test_market_data_metadata_includes_cached_timestamp_bounds() -> None:
     assert body["earliestTimestamp"] is None
 
 
-def test_market_data_admin_catch_up_uses_latest_cached_timestamp(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_market_data_admin_catch_up_refreshes_discovered_tail_gap(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client()
     _seed_candles()
     admin_cookie = _register_and_login_admin(client, "admincatch", "admincatch@example.com")
 
-    captured: dict[str, datetime] = {}
+    captured: dict[str, object] = {"refreshes": []}
 
     class FakeService:
-        def get_latest_cached_btcusdt_1m_timestamp(self):
-            return datetime(2026, 1, 1, 0, 1, tzinfo=UTC)
+        def __init__(self) -> None:
+            self.refreshed = False
+
+        def discover_missing_btcusdt_1m_ranges(self, start: datetime, end: datetime):
+            captured["discover_start"] = start
+            captured["discover_end"] = end
+            if self.refreshed:
+                return [], 2
+            return [(datetime(2026, 1, 1, 0, 2, tzinfo=UTC), datetime(2026, 1, 1, 0, 4, tzinfo=UTC))], 2
 
         def refresh_btcusdt_1m(self, start: datetime, end: datetime):
-            captured["start"] = start
-            captured["end"] = end
-            market_data_controller._catch_up_stop.set()
+            captured["refreshes"].append((start, end))
+            self.refreshed = True
             return type("Summary", (), {"inserted": 1, "updated": 0})()
 
     monkeypatch.setattr(market_data_controller, "MarketDataService", FakeService)
@@ -715,9 +769,10 @@ def test_market_data_admin_catch_up_uses_latest_cached_timestamp(monkeypatch: py
     response = client.post("/api/market-data/btcusdt/admin/catch-up", headers={"Cookie": admin_cookie})
 
     assert response.status_code == 202
-    _wait_for(lambda: "start" in captured)
-    assert captured["start"] == datetime(2026, 1, 1, 0, 2, tzinfo=UTC)
-    assert captured["end"] >= captured["start"]
+    _wait_for(lambda: captured["refreshes"] == [
+        (datetime(2026, 1, 1, 0, 2, tzinfo=UTC), datetime(2026, 1, 1, 0, 4, tzinfo=UTC))
+    ])
+    assert captured["discover_start"] == datetime(2017, 8, 17, 0, 0, tzinfo=UTC)
 
 
 def test_market_data_admin_clear_data_deletes_cached_rows(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -744,16 +799,21 @@ def test_market_data_admin_catch_up_after_clear_defaults_to_earliest_start(monke
     response = client.delete("/api/market-data/btcusdt/admin/klines", headers={"Cookie": admin_cookie})
     assert response.status_code == 200
 
-    captured: dict[str, datetime] = {}
+    captured: dict[str, object] = {"refreshes": []}
 
     class FakeService:
-        def get_latest_cached_btcusdt_1m_timestamp(self):
-            return None
+        def __init__(self) -> None:
+            self.refreshed = False
+
+        def discover_missing_btcusdt_1m_ranges(self, start: datetime, end: datetime):
+            captured["discover_start"] = start
+            if self.refreshed:
+                return [], 0
+            return [(start, start + market_data_controller.ADMIN_CATCH_UP_WINDOW)], 0
 
         def refresh_btcusdt_1m(self, start: datetime, end: datetime):
-            captured["start"] = start
-            captured["end"] = end
-            market_data_controller._catch_up_stop.set()
+            captured["refreshes"].append((start, end))
+            self.refreshed = True
             return type("Summary", (), {"inserted": 2, "updated": 0})()
 
     monkeypatch.setattr(market_data_controller, "MarketDataService", FakeService)
@@ -761,9 +821,104 @@ def test_market_data_admin_catch_up_after_clear_defaults_to_earliest_start(monke
     response = client.post("/api/market-data/btcusdt/admin/catch-up", headers={"Cookie": admin_cookie})
 
     assert response.status_code == 202
-    _wait_for(lambda: "start" in captured)
-    assert captured["start"] == datetime(2017, 8, 17, 0, 0, tzinfo=UTC)
-    assert captured["end"] == captured["start"] + market_data_controller.ADMIN_CATCH_UP_WINDOW
+    _wait_for(lambda: len(captured["refreshes"]) == 1)
+    assert captured["discover_start"] == datetime(2017, 8, 17, 0, 0, tzinfo=UTC)
+    assert captured["refreshes"][0] == (
+        datetime(2017, 8, 17, 0, 0, tzinfo=UTC),
+        datetime(2017, 8, 18, 0, 0, tzinfo=UTC),
+    )
+
+
+def test_market_data_admin_catch_up_refreshes_head_internal_and_tail_gaps(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client()
+    admin_cookie = _register_and_login_admin(client, "admingaps", "admingaps@example.com")
+    calls: list[tuple[datetime, datetime]] = []
+
+    class FakeService:
+        def __init__(self) -> None:
+            self.refreshed = False
+
+        def discover_missing_btcusdt_1m_ranges(self, start: datetime, end: datetime):
+            if self.refreshed:
+                return [], 4
+            return [
+                (datetime(2026, 1, 1, 0, 0, tzinfo=UTC), datetime(2026, 1, 1, 0, 1, tzinfo=UTC)),
+                (datetime(2026, 1, 1, 0, 3, tzinfo=UTC), datetime(2026, 1, 1, 0, 5, tzinfo=UTC)),
+                (datetime(2026, 1, 1, 0, 7, tzinfo=UTC), datetime(2026, 1, 1, 0, 8, tzinfo=UTC)),
+            ], 4
+
+        def refresh_btcusdt_1m(self, start: datetime, end: datetime):
+            calls.append((start, end))
+            if len(calls) == 3:
+                self.refreshed = True
+            return type("Summary", (), {"inserted": 1, "updated": 0})()
+
+    monkeypatch.setattr(market_data_controller, "MarketDataService", FakeService)
+
+    response = client.post("/api/market-data/btcusdt/admin/catch-up", headers={"Cookie": admin_cookie})
+
+    assert response.status_code == 202
+    _wait_for(lambda: len(calls) == 3)
+    assert calls == [
+        (datetime(2026, 1, 1, 0, 0, tzinfo=UTC), datetime(2026, 1, 1, 0, 1, tzinfo=UTC)),
+        (datetime(2026, 1, 1, 0, 3, tzinfo=UTC), datetime(2026, 1, 1, 0, 5, tzinfo=UTC)),
+        (datetime(2026, 1, 1, 0, 7, tzinfo=UTC), datetime(2026, 1, 1, 0, 8, tzinfo=UTC)),
+    ]
+
+
+def test_market_data_admin_catch_up_post_run_gap_check_repairs_missed_minute(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client()
+    admin_cookie = _register_and_login_admin(client, "adminpostgap", "adminpostgap@example.com")
+    calls: list[tuple[datetime, datetime]] = []
+
+    class FakeService:
+        def __init__(self) -> None:
+            self.discoveries = 0
+
+        def discover_missing_btcusdt_1m_ranges(self, start: datetime, end: datetime):
+            self.discoveries += 1
+            if self.discoveries == 1:
+                return [(datetime(2026, 1, 1, 0, 0, tzinfo=UTC), datetime(2026, 1, 1, 0, 5, tzinfo=UTC))], 0
+            if self.discoveries == 2:
+                return [(datetime(2026, 1, 1, 0, 3, tzinfo=UTC), datetime(2026, 1, 1, 0, 4, tzinfo=UTC))], 4
+            return [], 5
+
+        def refresh_btcusdt_1m(self, start: datetime, end: datetime):
+            calls.append((start, end))
+            return type("Summary", (), {"inserted": 1, "updated": 0})()
+
+    monkeypatch.setattr(market_data_controller, "MarketDataService", FakeService)
+
+    response = client.post("/api/market-data/btcusdt/admin/catch-up", headers={"Cookie": admin_cookie})
+
+    assert response.status_code == 202
+    _wait_for(lambda: len(calls) == 2)
+    assert calls == [
+        (datetime(2026, 1, 1, 0, 0, tzinfo=UTC), datetime(2026, 1, 1, 0, 5, tzinfo=UTC)),
+        (datetime(2026, 1, 1, 0, 3, tzinfo=UTC), datetime(2026, 1, 1, 0, 4, tzinfo=UTC)),
+    ]
+
+
+def test_market_data_admin_catch_up_reports_error_when_final_gap_check_still_finds_missing_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client()
+    admin_cookie = _register_and_login_admin(client, "admingap2", "admingap2@example.com")
+
+    class FakeService:
+        def discover_missing_btcusdt_1m_ranges(self, start: datetime, end: datetime):
+            return [(datetime(2026, 1, 1, 0, 0, tzinfo=UTC), datetime(2026, 1, 1, 0, 1, tzinfo=UTC))], 0
+
+        def refresh_btcusdt_1m(self, start: datetime, end: datetime):
+            return type("Summary", (), {"inserted": 0, "updated": 0})()
+
+    monkeypatch.setattr(market_data_controller, "MarketDataService", FakeService)
+
+    response = client.post("/api/market-data/btcusdt/admin/catch-up", headers={"Cookie": admin_cookie})
+
+    assert response.status_code == 202
+    _wait_for(lambda: market_data_controller._catch_up_status["state"] == "error")
+    assert "missing range" in market_data_controller._catch_up_status["error"]
 
 
 def test_market_data_admin_catch_up_status_and_stop_return_running_state() -> None:

@@ -14,6 +14,7 @@ export function UserProfileView() {
   const userId = searchParams.get('userId');
   const [user, setUser] = useState<CurrentUser | Record<string, unknown> | null>(null);
   const [artifacts, setArtifacts] = useState<Record<'experiments' | 'models' | 'blueprints', Array<Record<string, unknown>>> | null>(null);
+  const [summary, setSummary] = useState<{ experiments?: number; models?: number; blueprints?: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,6 +31,7 @@ export function UserProfileView() {
               models: response.data?.models ?? [],
               blueprints: response.data?.blueprints ?? [],
             });
+            setSummary(response.data?.summary ?? null);
           }
         } else {
           const response = await getMyProfile();
@@ -78,6 +80,18 @@ export function UserProfileView() {
           ) : null}
         </CardContent>
       </Card>
+      {summary ? (
+        <div className="grid gap-3 md:grid-cols-3">
+          {(['experiments', 'models', 'blueprints'] as const).map((kind) => (
+            <Card key={kind}>
+              <CardContent className="pt-4">
+                <p className="text-xs capitalize text-muted-foreground">{kind}</p>
+                <p className="text-2xl font-semibold">{Number(summary[kind] ?? 0).toLocaleString()}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : null}
       {artifacts ? (
         <Card>
           <CardHeader><CardTitle>Public Artifacts</CardTitle></CardHeader>

@@ -108,38 +108,67 @@ def _set_catch_up_status(**updates: Any) -> None:
 def _run_catch_up_until_current() -> None:
     total_rows = 0
     batches = 0
-    next_start: datetime | None = None
+
+    def process_ranges(
+        service: MarketDataService,
+        ranges_to_process: list[tuple[datetime, datetime]],
+        *,
+        requested_end: datetime,
+    ) -> bool:
+        nonlocal total_rows, batches
+        for range_start, range_end in ranges_to_process:
+            start = range_start
+            while start < range_end:
+                if _catch_up_stop.is_set():
+                    return False
+                end = min(range_end, start + ADMIN_CATCH_UP_WINDOW)
+                summary = service.refresh_btcusdt_1m(start=start, end=end)
+                rows = summary.inserted + summary.updated
+                total_rows += rows
+                batches += 1
+                _set_catch_up_status(
+                    state="running",
+                    updatedRows=total_rows,
+                    batches=batches,
+                    hasMore=end < requested_end,
+                    range={"start": start.isoformat(), "end": end.isoformat()},
+                )
+                start = end
+        return True
 
     try:
-        while not _catch_up_stop.is_set():
-            service = MarketDataService()
-            latest = service.get_latest_cached_btcusdt_1m_timestamp()
-            cache_start = latest + timedelta(minutes=1) if latest is not None else DEFAULT_BTCUSDT_1M_START
-            start = max(cache_start, next_start) if next_start is not None else cache_start
-            requested_end = datetime.now(UTC)
-            end = min(requested_end, start + ADMIN_CATCH_UP_WINDOW)
-            if start >= end:
-                _set_catch_up_status(state="completed", hasMore=False, endedAt=datetime.now(UTC).isoformat())
-                return
+        service = MarketDataService()
+        requested_end = datetime.now(UTC)
+        missing_ranges, _ = service.discover_missing_btcusdt_1m_ranges(
+            DEFAULT_BTCUSDT_1M_START,
+            requested_end,
+        )
+        if not process_ranges(service, missing_ranges, requested_end=requested_end):
+            _set_catch_up_status(state="stopped", hasMore=True, endedAt=datetime.now(UTC).isoformat())
+            return
 
-            summary = service.refresh_btcusdt_1m(start=start, end=end)
-            rows = summary.inserted + summary.updated
-            total_rows += rows
-            batches += 1
-            next_start = end
-            has_more = end < requested_end
+        post_run_ranges, _ = service.discover_missing_btcusdt_1m_ranges(
+            DEFAULT_BTCUSDT_1M_START,
+            requested_end,
+        )
+        if post_run_ranges and not process_ranges(service, post_run_ranges, requested_end=requested_end):
+            _set_catch_up_status(state="stopped", hasMore=True, endedAt=datetime.now(UTC).isoformat())
+            return
+
+        final_ranges, _ = service.discover_missing_btcusdt_1m_ranges(
+            DEFAULT_BTCUSDT_1M_START,
+            requested_end,
+        )
+        if final_ranges:
             _set_catch_up_status(
-                state="running",
-                updatedRows=total_rows,
-                batches=batches,
-                hasMore=has_more,
-                range={"start": start.isoformat(), "end": end.isoformat()},
+                state="error",
+                error=f"BTCUSDT catch-up finished with {len(final_ranges)} missing range(s).",
+                hasMore=True,
+                endedAt=datetime.now(UTC).isoformat(),
             )
-            if not has_more:
-                _set_catch_up_status(state="completed", endedAt=datetime.now(UTC).isoformat())
-                return
+            return
 
-        _set_catch_up_status(state="stopped", hasMore=True, endedAt=datetime.now(UTC).isoformat())
+        _set_catch_up_status(state="completed", hasMore=False, endedAt=datetime.now(UTC).isoformat())
     except MarketDataRefreshError as exc:
         _set_catch_up_status(state="error", error=str(exc), endedAt=datetime.now(UTC).isoformat())
     except Exception as exc:
@@ -256,9 +285,7 @@ def _aggregate_preview_rows(rows: list[object], interval: str) -> list[dict[str,
     current_bucket: datetime | None = None
     current_row: dict[str, object] | None = None
     for row in rows:
-        timestamp = _row_value(row, "timestamp")
-        if not isinstance(timestamp, datetime):
-            timestamp = _coerce_datetime(timestamp)
+        timestamp = _coerce_datetime(_row_value(row, "timestamp"))
         bucket_ts = datetime.fromtimestamp((int(timestamp.timestamp()) // bucket_seconds) * bucket_seconds, tz=UTC)
         if current_bucket != bucket_ts or current_row is None:
             if current_row is not None:

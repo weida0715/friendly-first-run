@@ -137,6 +137,39 @@ def test_upsert_klines_empty_and_interval_validation() -> None:
         repo.list_range(now, now + timedelta(minutes=1), interval="5m")
 
 
+def test_projection_range_treats_end_as_exclusive_for_boundary_parity() -> None:
+    session = _session()
+    repo = MarketDataRepository(session)
+    start = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
+    repo.upsert_klines(
+        [
+            BTCUSDTKline(
+                timestamp=start,
+                open=Decimal("100"),
+                high=Decimal("101"),
+                low=Decimal("99"),
+                close=Decimal("100.5"),
+                volume=Decimal("1"),
+                created_at=start,
+            ),
+            BTCUSDTKline(
+                timestamp=start + timedelta(minutes=1),
+                open=Decimal("200"),
+                high=Decimal("201"),
+                low=Decimal("199"),
+                close=Decimal("200.5"),
+                volume=Decimal("2"),
+                created_at=start + timedelta(minutes=1),
+            ),
+        ]
+    )
+
+    rows = repo.list_range_projection(start, start + timedelta(minutes=1), interval="1m")
+
+    assert len(rows) == 1
+    assert rows[0].Timestamp == start.replace(tzinfo=None)
+
+
 def test_postgres_projection_uses_epoch_bucket_and_naive_utc_bounds() -> None:
     class _Dialect:
         name = "postgresql"

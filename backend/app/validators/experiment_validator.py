@@ -39,6 +39,9 @@ class ExperimentValidator:
         interval = payload.get("interval") or "1m"
         if interval not in cls.SUPPORTED_INTERVALS:
             errors["interval"].append("Unsupported experiment interval.")
+        priority = payload.get("job_priority", payload.get("jobPriority", "normal"))
+        if priority not in {"low", "normal", "high"}:
+            errors["jobPriority"].append("Job priority must be low, normal, or high.")
 
         start_date_raw = payload.get(
             "start_datetime", payload.get("start_date"))
@@ -130,6 +133,17 @@ class ExperimentValidator:
             errors["parameterOverrides"].append(
                 "Parameter overrides must be an object.")
         else:
+            threshold = overrides.get("signal_threshold", overrides.get("signalThreshold"))
+            if threshold is not None:
+                try:
+                    parsed_threshold = float(threshold)
+                except (TypeError, ValueError):
+                    errors["parameterOverrides.signal_threshold"].append(
+                        "Signal threshold must be numeric.")
+                else:
+                    if parsed_threshold < 0 or parsed_threshold > 1:
+                        errors["parameterOverrides.signal_threshold"].append(
+                            "Signal threshold must be between 0 and 1.")
             cls._validate_override_value(
                 "parameterOverrides", overrides, errors)
 

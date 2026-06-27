@@ -5,7 +5,7 @@ const getBTCUSDTKlinesMock = jest.fn();
 const listExperimentsMock = jest.fn();
 const getModelRankingsMock = jest.fn();
 const listOwnedBlueprintsMock = jest.fn();
-const mockUseBTCUSDTChartData = jest.fn(() => ({
+const mockUseBTCUSDTChartData = jest.fn((_limit?: unknown, _interval?: unknown) => ({
   data: [],
   loading: false,
   loadingOlder: false,
@@ -35,7 +35,7 @@ jest.mock('@/lib/api/client', () => ({
 
 jest.mock('@/components/charts', () => ({
   BTCUSDTPriceChart: () => <div>BTCUSDT Chart Mock</div>,
-  useBTCUSDTChartData: (...args: unknown[]) => mockUseBTCUSDTChartData(...args),
+  useBTCUSDTChartData: (limit?: unknown, interval?: unknown) => mockUseBTCUSDTChartData(limit, interval),
 }));
 
 describe('DashboardView', () => {

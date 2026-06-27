@@ -10,7 +10,9 @@ from app.domain.models.btcusdt_kline import BTCUSDTKline
 from app.domain.models.experiment import Experiment
 from app.executors.default_experiment_executor import (
     DefaultExperimentExecutor,
+    ExperimentCancelledError,
     ExperimentExecutionError,
+    _apply_signal_threshold,
     _build_round_log_rows,
     candles_to_lazyframe,
 )
@@ -176,6 +178,26 @@ class _FakeUoW:
         return None
 
 
+class _FakeExperimentRepo:
+    def __init__(self, experiment: Experiment | None) -> None:
+        self._experiment = experiment
+
+    def get_by_id(self, experiment_id: int) -> Experiment | None:
+        _ = experiment_id
+        return self._experiment
+
+
+class _FakeExperimentUoW:
+    def __init__(self, experiment: Experiment | None) -> None:
+        self.experiments = _FakeExperimentRepo(experiment)
+
+    def __enter__(self) -> _FakeExperimentUoW:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:  # noqa: ANN001
+        return None
+
+
 class _FakeMarketDataService:
     def __init__(self, *, events: list[str], error: Exception | None = None):
         self._events = events
@@ -311,13 +333,31 @@ def test_round_log_rows_honor_explicit_cap() -> None:
             "timestamp": [datetime(2026, 1, 1, 0, i, tzinfo=UTC) for i in range(5)],
             "target": [1, 0, 1, 0, 1],
         }).lazy(),
-        "_latest_predictions": {"_preds": [1, 1, 0, 0, 1]},
+        "_latest_predictions": {"_preds": [1, 1, 0, 0, 1], "_raw_values": [0.91, 0.82, 0.41, 0.12, 0.77]},
     }
 
     rows = _build_round_log_rows(ctx, 10, "hash", max_rows=2)
 
     assert len(rows) == 2
     assert [row["round_index"] for row in rows] == [0, 1]
+    assert rows[0]["prediction"] == Decimal("0.91")
+    assert rows[0]["signal"] == 1
+
+
+def test_signal_threshold_preserves_raw_probabilities() -> None:
+    predictions = _apply_signal_threshold({"_preds": [0, 0, 0], "_probs": [0.4, 0.6, 0.8]}, 0.7)
+
+    assert predictions["_preds"] == [0, 0, 1]
+    assert predictions["_raw_values"] == [0.4, 0.6, 0.8]
+
+
+def test_check_cancelled_raises_for_cancelled_experiment() -> None:
+    experiment = _experiment(start=date(2026, 1, 1), end=date(2026, 1, 2))
+    experiment.status = "Cancelled"
+    executor = DefaultExperimentExecutor(unit_of_work_factory=lambda: _FakeExperimentUoW(experiment))
+
+    with pytest.raises(ExperimentCancelledError):
+        executor.check_cancelled(ExperimentExecutor.ExecutionContext(experiment_id=experiment.experiment_id or 1))
 
 
 def test_execute_follows_golden_template_method_order() -> None:

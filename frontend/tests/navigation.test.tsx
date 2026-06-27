@@ -45,6 +45,7 @@ describe('navigation', () => {
     expect(screen.getByText('Experiments')).toBeInTheDocument();
     expect(screen.getByText('Blueprints')).toBeInTheDocument();
     expect(screen.getByText('Models')).toBeInTheDocument();
+    expect(screen.getByText('Favorites')).toBeInTheDocument();
   });
 
   it('contains expected route targets', () => {
@@ -59,6 +60,7 @@ describe('navigation', () => {
     expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/dashboard');
     expect(screen.getByRole('link', { name: 'Experiments' })).toHaveAttribute('href', '/experiments');
     expect(screen.getByRole('link', { name: 'Public Hub' })).toHaveAttribute('href', '/hub');
+    expect(screen.getByRole('link', { name: 'Favorites' })).toHaveAttribute('href', '/favorites');
   });
 
   it('enforces role-based visibility', () => {

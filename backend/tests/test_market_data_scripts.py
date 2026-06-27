@@ -27,6 +27,23 @@ class CachedBTCUSDTService:
             if start <= timestamp <= end
         )
 
+    def discover_missing_btcusdt_1m_ranges(self, start: datetime, end: datetime):
+        step = timedelta(minutes=1)
+        cached = [
+            timestamp
+            for timestamp in self.list_cached_btcusdt_1m_timestamps(start, end)
+            if start <= timestamp < end
+        ]
+        ranges: list[tuple[datetime, datetime]] = []
+        next_missing_start = start
+        for timestamp in cached:
+            if timestamp > next_missing_start:
+                ranges.append((next_missing_start, timestamp))
+            next_missing_start = timestamp + step
+        if next_missing_start < end:
+            ranges.append((next_missing_start, end))
+        return ranges, len(cached)
+
     def _cache_window(
         self,
         start: datetime,
@@ -365,6 +382,22 @@ def test_ingest_script_reconcile_cache_fills_head_internal_and_tail(monkeypatch,
         (datetime(2026, 1, 1, 2, 1, tzinfo=UTC),
          datetime(2026, 1, 1, 3, 0, tzinfo=UTC)),
     ]
+
+
+def test_ingest_script_missing_range_helper_uses_service_reconciliation() -> None:
+    from app.scripts import ingest_btcusdt_klines as script
+
+    start = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
+    end = datetime(2026, 1, 1, 0, 5, tzinfo=UTC)
+    expected = [(start + timedelta(minutes=2), start + timedelta(minutes=4))]
+
+    class FakeService:
+        def discover_missing_btcusdt_1m_ranges(self, actual_start: datetime, actual_end: datetime):
+            assert actual_start == start
+            assert actual_end == end
+            return expected, 3
+
+    assert script._discover_missing_ranges(FakeService(), start, end) == (expected, 3)
 
 
 def test_ingest_script_reconcile_cache_fills_internal_gap(monkeypatch, capsys) -> None:

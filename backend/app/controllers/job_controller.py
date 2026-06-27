@@ -88,6 +88,7 @@ def index():
                     "id": queue_job_id,
                     "state": queue_job.get("state"),
                     "type": queue_job.get("job_type") or "EXPERIMENT_EXECUTION",
+                    "priority": queue_job.get("priority") or "normal",
                     "ownerId": experiment.user_id,
                     "queue": {
                         "name": queue_job.get("queue_name"),
@@ -145,6 +146,7 @@ def get_job_detail(job_id: str):
                     "id": queue_job.get("job_id"),
                     "state": queue_job.get("state"),
                     "type": queue_job.get("job_type") or "EXPERIMENT_EXECUTION",
+                    "priority": queue_job.get("priority") or "normal",
                     "ownerId": experiment.user_id,
                     "queue": {
                         "name": queue_job.get("queue_name"),

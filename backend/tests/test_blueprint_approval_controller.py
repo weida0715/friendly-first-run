@@ -85,8 +85,15 @@ def test_moderator_reject_from_pending_and_disapprove_from_approved() -> None:
     disapprove_res = client.post(
         f"/api/blueprints/{approved_disapprove.blueprint_id}/disapprove", headers={"Cookie": mod_cookie})
     assert disapprove_res.status_code == 200
-    assert disapprove_res.get_json(
-    )["data"]["blueprint"]["approvalState"] == "Disapproved"
+    disapprove_body = disapprove_res.get_json()["data"]
+    assert disapprove_body["blueprint"]["approvalState"] == "Disapproved"
+    assert disapprove_body["draftId"] is not None
+    with UnitOfWork() as uow:
+        draft = uow.blueprints.get_by_id(disapprove_body["draftId"])
+        assert draft is not None
+        assert draft.approval_state == "Draft"
+        assert draft.parent_id == approved_disapprove.blueprint_id
+        assert draft.version == 2
 
     # Owner cannot perform moderation actions.
     owner_moderate_denied = client.post(
